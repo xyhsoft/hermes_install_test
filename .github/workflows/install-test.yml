@@ -24,19 +24,16 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # CI 旁路：跳过 Windows RunAs 提权、跳过交互
   HERMES_CI: "1"
-  # 跳过所有交互/可选段（各 job 统一用这些参数）
   INSTALL_FLAGS: "--skip-provider-config --skip-autostart --skip-connectivity-test --skip-browser-act"
 
 jobs:
   # ============================================================
-  # Linux / macOS / CentOS(Docker) 安装测试
+  # Ubuntu / macOS 安装测试
   # ============================================================
-  test-linux:
+  test-unix:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
-    container: ${{ matrix.container }}
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -44,53 +41,57 @@ jobs:
         include:
           - os: ubuntu-latest
             name: Ubuntu-x64
-            container: ""
           - os: macos-latest
             name: macOS
-            container: ""
-          - os: ubuntu-latest
-            name: CentOS-7-Docker
-            container: "centos:7"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: CentOS 容器准备（装 git/sudo/curl）
-        if: matrix.container != ''
-        run: |
-          yum install -y epel-release
-          yum install -y git sudo curl wget ca-certificates tar
 
       - name: 赋予脚本执行权限
         run: chmod +x hermes_install/scripts/*.sh
 
       - name: 安装（第一次）
+        # 容错：install.sh 内部失败多为 warn 不退出，但若 exit 1 也不让 step 挂，靠验证 step 抓
         run: |
           set -x
           sudo bash hermes_install/scripts/install.sh $INSTALL_FLAGS 2>&1 | tee install-1.log
-          # 安装脚本退出码非 0 即失败（但脚本内部失败多为 warn 不退出，所以看产物）
+          echo "install-1 退出码: ${PIPESTATUS[0]}"
         shell: bash
 
       - name: 验证安装产物
         run: |
           set -e
-          echo "=== hermes --version ==="
-          # 环境变量写的是 /etc/profile，新 shell 才生效；CI 里直接用绝对路径或 source
           source /etc/profile 2>/dev/null || true
-          export PATH="/usr/local/hermes:/usr/local/hermes/lark:$PATH"
+          source /etc/profile.d/hermes.sh 2>/dev/null || true
+          export PATH="/usr/local/hermes:/usr/local/hermes/lark:/usr/local/bin:/usr/bin:/bin:$PATH"
           export HERMES_HOME="${HERMES_HOME:-/var/lib/hermes}"
-          hermes --version || { echo "❌ hermes 未装上"; exit 1; }
+          echo "=== hermes 定位 ==="
+          HERMES_BIN=$(command -v hermes 2>/dev/null || true)
+          if [ -z "$HERMES_BIN" ]; then
+            for p in /usr/local/bin/hermes /usr/bin/hermes /root/.local/bin/hermes "$HOME/.local/bin/hermes" /opt/homebrew/bin/hermes /usr/local/hermes/hermes; do
+              [ -x "$p" ] && HERMES_BIN="$p" && break
+            done
+          fi
+          echo "hermes 可执行: ${HERMES_BIN:-未找到}"
+          if [ -z "$HERMES_BIN" ]; then
+            echo "❌ hermes 未装上"
+            echo "--- pip show hermes-agent ---"
+            python3 -m pip show hermes-agent 2>&1 || true
+            echo "--- install-1.log 末尾 50 行 ---"
+            tail -50 install-1.log || true
+            exit 1
+          fi
+          "$HERMES_BIN" --version || { echo "❌ hermes --version 执行失败"; exit 1; }
           echo "✅ hermes 已装上"
 
           echo "=== 飞书 CLI ==="
-          test -x /usr/local/hermes/lark/lark && echo "✅ lark 存在" || { echo "⚠️ lark 未找到（可能在线下载失败，非致命）"; }
+          test -x /usr/local/hermes/lark/lark && echo "✅ lark 存在" || echo "⚠️ lark 未找到（非致命）"
 
           echo "=== 依赖清单 ==="
           if [ -f "$HERMES_HOME/installed-deps.txt" ]; then
-            echo "✅ 依赖清单已生成:"
-            cat "$HERMES_HOME/installed-deps.txt"
+            echo "✅ 依赖清单已生成:"; cat "$HERMES_HOME/installed-deps.txt"
           else
-            echo "⚠️ 依赖清单未生成（升级模式或快照失败）"
+            echo "⚠️ 依赖清单未生成"
           fi
 
           echo "=== CC-Switch 状态 ==="
@@ -103,10 +104,8 @@ jobs:
 
       - name: 幂等性测试（第二次安装应跳过）
         run: |
-          set -e
-          echo "=== 第二次安装 ==="
+          set -x
           sudo bash hermes_install/scripts/install.sh $INSTALL_FLAGS 2>&1 | tee install-2.log
-          # 幂等：第二次应出现"跳过"字样（hermes 已是目标版本）
           if grep -qE "跳过|已是.*版本|已装" install-2.log; then
             echo "✅ 幂等性生效（第二次出现跳过）"
           else
@@ -117,15 +116,13 @@ jobs:
       - name: 卸载测试
         if: github.event.inputs.run_uninstall != 'false' && github.event_name != 'pull_request'
         run: |
-          set -e
-          echo "=== 卸载 ==="
-          # 卸载脚本有确认提示，用 y 管道喂入；依赖卸载也用 y
-          printf 'y\ny\n' | sudo bash hermes_install/scripts/uninstall.sh --remove-config --remove-deps 2>&1 | tee uninstall.log
+          set -x
+          printf 'y\n' | sudo bash hermes_install/scripts/uninstall.sh --remove-config --remove-deps 2>&1 | tee uninstall.log
           echo "=== 验证卸载结果 ==="
           source /etc/profile 2>/dev/null || true
-          if command -v hermes >/dev/null 2>&1; then
-            # pip uninstall 后 hermes 可能仍在 PATH 缓存，二次确认
-            if hermes --version >/dev/null 2>&1; then echo "❌ hermes 仍可用，卸载失败"; exit 1; fi
+          export PATH="/usr/local/bin:/usr/bin:/bin:$PATH"
+          if command -v hermes >/dev/null 2>&1 && hermes --version >/dev/null 2>&1; then
+            echo "❌ hermes 仍可用，卸载失败"; exit 1
           fi
           echo "✅ hermes 已卸载"
           test -d /usr/local/hermes && echo "⚠️ 安装目录仍存在" || echo "✅ 安装目录已删除"
@@ -140,7 +137,102 @@ jobs:
             install-1.log
             install-2.log
             uninstall.log
-            /var/log/hermes-install.log
+          if-no-files-found: ignore
+
+  # ============================================================
+  # CentOS-7 安装测试（独立 job，用 docker run 避免 container checkout 需 git 的鸡生蛋）
+  # ============================================================
+  test-centos:
+    name: CentOS-7-Docker
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: 构建 CentOS 测试镜像
+        run: |
+          cat > Dockerfile.centos7 <<'EOF'
+          FROM centos:7
+          RUN yum install -y epel-release && \
+              yum install -y python3 python3-pip curl wget ca-certificates tar sudo && \
+              yum clean all
+          EOF
+          docker build -t hermes-centos7 -f Dockerfile.centos7 .
+
+      - name: 安装（第一次）
+        run: |
+          set -x
+          docker run --rm \
+            -v "$PWD:/work" \
+            -w /work \
+            hermes-centos7 \
+            bash -c 'bash hermes_install/scripts/install.sh $INSTALL_FLAGS' 2>&1 | tee install-1.log
+          echo "install-1 完成"
+        env:
+          INSTALL_FLAGS: ${{ env.INSTALL_FLAGS }}
+
+      - name: 验证安装产物
+        run: |
+          set -e
+          echo "=== 在 CentOS 容器内验证 ==="
+          docker run --rm \
+            -v "$PWD:/work" \
+            -w /work \
+            hermes-centos7 \
+            bash -c '
+              source /etc/profile 2>/dev/null || true
+              export PATH="/usr/local/hermes:/usr/local/hermes/lark:/usr/local/bin:/usr/bin:/bin:$PATH"
+              export HERMES_HOME="/var/lib/hermes"
+              HERMES_BIN=$(command -v hermes 2>/dev/null || true)
+              for p in /usr/local/bin/hermes /usr/bin/hermes /root/.local/bin/hermes; do [ -x "$p" ] && HERMES_BIN="$p" && break; done
+              echo "hermes 可执行: ${HERMES_BIN:-未找到}"
+              if [ -z "$HERMES_BIN" ]; then
+                echo "❌ hermes 未装上"
+                python3 -m pip show hermes-agent 2>&1 || true
+                exit 1
+              fi
+              "$HERMES_BIN" --version || { echo "❌ hermes --version 失败"; exit 1; }
+              echo "✅ hermes 已装上"
+              test -x /usr/local/hermes/lark/lark && echo "✅ lark 存在" || echo "⚠️ lark 未找到"
+              [ -f "$HERMES_HOME/installed-deps.txt" ] && { echo "✅ 依赖清单:"; cat "$HERMES_HOME/installed-deps.txt"; } || echo "⚠️ 依赖清单未生成"
+            '
+
+      - name: 幂等性测试
+        run: |
+          set -x
+          docker run --rm \
+            -v "$PWD:/work" \
+            -w /work \
+            hermes-centos7 \
+            bash -c 'bash hermes_install/scripts/install.sh $INSTALL_FLAGS 2>&1' | tee install-2.log
+          if grep -qE "跳过|已是.*版本|已装" install-2.log; then
+            echo "✅ 幂等性生效"
+          else
+            echo "⚠️ 幂等性未检测到跳过字样"
+          fi
+        env:
+          INSTALL_FLAGS: ${{ env.INSTALL_FLAGS }}
+
+      - name: 卸载测试
+        if: github.event.inputs.run_uninstall != 'false' && github.event_name != 'pull_request'
+        run: |
+          set -x
+          printf 'y\n' | docker run --rm -i \
+            -v "$PWD:/work" \
+            -w /work \
+            hermes-centos7 \
+            bash -c 'bash hermes_install/scripts/uninstall.sh --remove-config --remove-deps' 2>&1 | tee uninstall.log
+
+      - name: 上传日志
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-CentOS-7-Docker
+          path: |
+            install-1.log
+            install-2.log
+            uninstall.log
           if-no-files-found: ignore
 
   # ============================================================
@@ -166,17 +258,33 @@ jobs:
           & .\hermes_install\scripts\install-windows.ps1 `
             -SKIP_PROVIDER_CONFIG -SKIP_AUTOSTART -SKIP_CONNECTIVITY_TEST -SKIP_BROWSER_ACT -CI `
             2>&1 | Tee-Object -FilePath install-1.log
+          Write-Host "install-1 完成"
         shell: pwsh
 
       - name: 验证安装产物
         run: |
           $ErrorActionPreference = 'Continue'
-          # 刷新 PATH
           $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
           Write-Host "=== hermes --version ==="
-          try { hermes --version; Write-Host "✅ hermes 已装上" } catch { Write-Host "❌ hermes 未装上"; exit 1 }
-          Write-Host "=== config.yaml ==="
-          if (Test-Path "$env:APPDATA\Hermes\config.yaml") { Write-Host "✅ config.yaml 存在" } else { Write-Host "⚠️ config.yaml 未生成（跳过了 provider 配置时正常）" }
+          $hermesCmd = Get-Command hermes -ErrorAction SilentlyContinue
+          if (-not $hermesCmd) {
+            # 查常见路径
+            foreach ($p in @("C:\Program Files\HermesAgent\hermes.exe","$env:APPDATA\Hermes\hermes.exe","$env:LOCALAPPDATA\Programs\Python\..\Scripts\hermes.exe","$env:USERPROFILE\.local\bin\hermes.exe")) {
+              if (Test-Path $p) { $env:Path = "$env:Path;$(Split-Path $p)"; break }
+            }
+            $hermesCmd = Get-Command hermes -ErrorAction SilentlyContinue
+          }
+          if ($hermesCmd) {
+            try { hermes --version; Write-Host "✅ hermes 已装上" }
+            catch { Write-Host "❌ hermes --version 失败"; Get-Content install-1.log -Tail 50; exit 1 }
+          } else {
+            Write-Host "❌ hermes 未装上"
+            Write-Host "--- pip show ---"
+            pip show hermes-agent 2>&1
+            Write-Host "--- install-1.log 末尾 ---"
+            Get-Content install-1.log -Tail 50 -ErrorAction SilentlyContinue
+            exit 1
+          }
           Write-Host "=== 依赖清单 ==="
           if (Test-Path "$env:APPDATA\Hermes\installed-deps.txt") { Write-Host "✅ 依赖清单:"; Get-Content "$env:APPDATA\Hermes\installed-deps.txt" } else { Write-Host "⚠️ 依赖清单未生成" }
           Write-Host "=== CC-Switch 状态 ==="
@@ -188,7 +296,6 @@ jobs:
         run: |
           $ErrorActionPreference = 'Continue'
           $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
-          Write-Host "=== 第二次安装 ==="
           & .\hermes_install\scripts\install-windows.ps1 `
             -SKIP_PROVIDER_CONFIG -SKIP_AUTOSTART -SKIP_CONNECTIVITY_TEST -SKIP_BROWSER_ACT -CI `
             2>&1 | Tee-Object -FilePath install-2.log
@@ -204,11 +311,15 @@ jobs:
         run: |
           $ErrorActionPreference = 'Continue'
           Write-Host "=== 卸载 ==="
-          # 卸载脚本有确认提示，用自动化输入
-          'y' | & .\hermes_install\scripts\uninstall-windows.ps1 -REMOVE_CONFIG -REMOVE_DEPS -CI 2>&1 | Tee-Object -FilePath uninstall.log
+          # -CI 模式自动跳过 Read-Host 确认（管道喂不进 Read-Host）
+          & .\hermes_install\scripts\uninstall-windows.ps1 -REMOVE_CONFIG -REMOVE_DEPS -CI 2>&1 | Tee-Object -FilePath uninstall.log
           Write-Host "=== 验证卸载结果 ==="
           $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
-          try { hermes --version 2>$null; Write-Host "❌ hermes 仍可用，卸载失败"; exit 1 } catch { Write-Host "✅ hermes 已卸载" }
+          $hermesCmd = Get-Command hermes -ErrorAction SilentlyContinue
+          if ($hermesCmd) {
+            try { hermes --version 2>$null; Write-Host "❌ hermes 仍可用，卸载失败"; exit 1 } catch {}
+          }
+          Write-Host "✅ hermes 已卸载"
         shell: pwsh
 
       - name: 上传日志
@@ -220,5 +331,4 @@ jobs:
             install-1.log
             install-2.log
             uninstall.log
-            C:\Program Files\HermesAgent\install.log
           if-no-files-found: ignore

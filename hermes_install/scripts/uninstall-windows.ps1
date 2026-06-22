@@ -37,8 +37,13 @@ if (-not $CI_MODE) {
 Write-Host "========================================" -ForegroundColor Yellow
 Write-Host "  Hermes Agent 卸载" -ForegroundColor Yellow
 Write-Host "========================================" -ForegroundColor Yellow
-$confirm = Read-Host "确认卸载？(y/N)"
-if ($confirm -ne "y" -and $confirm -ne "Y") { Write-Host "取消卸载"; exit }
+# CI 模式跳过交互确认（Read-Host 不读 stdin 管道）
+if (-not $CI_MODE) {
+    $confirm = Read-Host "确认卸载？(y/N)"
+    if ($confirm -ne "y" -and $confirm -ne "Y") { Write-Host "取消卸载"; exit }
+} else {
+    Write-Host "CI 模式，自动确认卸载"
+}
 
 # 卸载 Hermes Agent
 Write-Host "卸载 Hermes Agent..."
