@@ -259,16 +259,20 @@ install_lark() {
         info "飞书 CLI 最新版: ${tag:-未知}，下载中..."
         local tmp="/tmp/lark-$$.tar.gz"
         if download_with_retry "$asset_url" "$tmp"; then
-            tar -xzf "$tmp" -C "$LARK_DIR" 2>/dev/null
+            # 解压到临时目录，避免 find 命中目标路径本身导致 mv 自移
+            local extract_dir="/tmp/lark-extract-$$"
+            mkdir -p "$extract_dir"
+            tar -xzf "$tmp" -C "$extract_dir" 2>/dev/null
             local bin
-            bin=$(find "$LARK_DIR" -name "lark" -o -name "lark-cli" 2>/dev/null | head -1)
+            bin=$(find "$extract_dir" -type f \( -name "lark" -o -name "lark-cli" \) 2>/dev/null | head -1)
             if [[ -n "$bin" ]]; then
-                [[ "$bin" != "$LARK_DIR/lark" ]] && mv "$bin" "$LARK_DIR/lark"
+                cp -f "$bin" "$LARK_DIR/lark"
                 chmod +x "$LARK_DIR/lark"
                 info "飞书 CLI 安装成功"
-                rm -f "$tmp"
+                rm -rf "$extract_dir" "$tmp"
                 return 0
             fi
+            rm -rf "$extract_dir"
         fi
         rm -f "$tmp"
     fi
@@ -284,16 +288,19 @@ install_lark() {
     local proxies=("https://ghfast.top/$base" "https://gh-proxy.com/$base" "$base")
     for proxy in "${proxies[@]}"; do
         if download_with_retry "$proxy/$lark_file" "/tmp/$lark_file" 1; then
-            tar -xzf "/tmp/$lark_file" -C "$LARK_DIR" 2>/dev/null
+            local extract_dir="/tmp/lark-extract-$$"
+            mkdir -p "$extract_dir"
+            tar -xzf "/tmp/$lark_file" -C "$extract_dir" 2>/dev/null
             local bin
-            bin=$(find "$LARK_DIR" -name "lark" -o -name "lark-cli" 2>/dev/null | head -1)
+            bin=$(find "$extract_dir" -type f \( -name "lark" -o -name "lark-cli" \) 2>/dev/null | head -1)
             if [[ -n "$bin" ]]; then
-                [[ "$bin" != "$LARK_DIR/lark" ]] && mv "$bin" "$LARK_DIR/lark"
+                cp -f "$bin" "$LARK_DIR/lark"
                 chmod +x "$LARK_DIR/lark"
                 info "飞书 CLI 安装成功"
-                rm -f "/tmp/$lark_file"
+                rm -rf "$extract_dir" "/tmp/$lark_file"
                 return 0
             fi
+            rm -rf "$extract_dir"
         fi
     done
 

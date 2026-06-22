@@ -103,14 +103,30 @@ PIP_MIRRORS=(
 # 用法: pip_install_with_mirror "<pip 参数...>"
 pip_install_with_mirror() {
     local mirror host
+    # PEP 668: 新版系统 Python(debian/ubuntu) 禁止系统级 pip 装，需 --break-system-packages
+    # 老 pip 不认此参数会报错，所以先探测
+    local break_flag=""
+    if python3 -m pip install --help 2>/dev/null | grep -q -- '--break-system-packages'; then
+        break_flag="--break-system-packages"
+    fi
     for mirror in "${PIP_MIRRORS[@]}"; do
         host=$(extract_host "$mirror")
         info "尝试镜像源: $mirror"
-        if pip3 install "$@" -i "$mirror" --trusted-host "$host"; then
+        if pip3 install "$@" $break_flag -i "$mirror" --trusted-host "$host"; then
             return 0
         fi
         warn "源 $mirror 失败，尝试下一个..."
     done
+    # 全部失败后，用 --ignore-installed 兜底（应对系统包 RECORD 缺失导致的卸载冲突，如 urllib3）
+    if [[ -n "$break_flag" ]]; then
+        warn "常规安装失败，尝试 --ignore-installed 兜底..."
+        for mirror in "${PIP_MIRRORS[@]}"; do
+            host=$(extract_host "$mirror")
+            if pip3 install "$@" $break_flag --ignore-installed -i "$mirror" --trusted-host "$host"; then
+                return 0
+            fi
+        done
+    fi
     error "所有 pip 镜像源都失败"
     return 1
 }
