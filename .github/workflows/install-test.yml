@@ -77,10 +77,14 @@ jobs:
             echo "❌ hermes 未装上，开始诊断..."
             echo "--- sudo pip3 show hermes-agent（install 是 sudo 装的）---"
             sudo python3 -m pip show hermes-agent 2>&1 || true
-            echo "--- 全盘查找 hermes 可执行文件（限时 30s）---"
-            sudo timeout 30 find / -name hermes -type f 2>/dev/null | head -20 || true
-            echo "--- install-1.log 完整内容 ---"
-            cat install-1.log || true
+            echo "--- sudo python3 -m pip list | grep hermes ---"
+            sudo python3 -m pip list 2>/dev/null | grep -i hermes || echo "(pip list 无 hermes)"
+            echo "--- 全盘查找 hermes* 可执行文件（限时 30s）---"
+            sudo timeout 30 find / -name 'hermes*' -type f 2>/dev/null | head -20 || true
+            echo "--- install-1.log 中 hermes/pip/ERROR 相关行 ---"
+            grep -iE 'hermes|pip|ERROR|失败|successfully installed|externally-managed|Cannot uninstall' install-1.log 2>/dev/null | tail -40 || true
+            echo "--- install-1.log 末尾 30 行 ---"
+            tail -30 install-1.log 2>/dev/null || true
             exit 1
           fi
           "$HERMES_BIN" --version || { echo "❌ hermes --version 执行失败"; exit 1; }
