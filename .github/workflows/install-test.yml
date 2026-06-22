@@ -63,22 +63,24 @@ jobs:
           set -e
           source /etc/profile 2>/dev/null || true
           source /etc/profile.d/hermes.sh 2>/dev/null || true
-          export PATH="/usr/local/hermes:/usr/local/hermes/lark:/usr/local/bin:/usr/bin:/bin:$PATH"
+          export PATH="/usr/local/hermes:/usr/local/hermes/lark:/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin:$PATH"
           export HERMES_HOME="${HERMES_HOME:-/var/lib/hermes}"
           echo "=== hermes 定位 ==="
           HERMES_BIN=$(command -v hermes 2>/dev/null || true)
           if [ -z "$HERMES_BIN" ]; then
-            for p in /usr/local/bin/hermes /usr/bin/hermes /root/.local/bin/hermes "$HOME/.local/bin/hermes" /opt/homebrew/bin/hermes /usr/local/hermes/hermes; do
+            for p in /usr/local/bin/hermes /usr/bin/hermes /root/.local/bin/hermes "$HOME/.local/bin/hermes" /opt/homebrew/bin/hermes /usr/local/hermes/hermes /Library/Frameworks/Python.framework/Versions/3.12/bin/hermes /Library/Frameworks/Python.framework/Versions/3.13/bin/hermes; do
               [ -x "$p" ] && HERMES_BIN="$p" && break
             done
           fi
           echo "hermes 可执行: ${HERMES_BIN:-未找到}"
           if [ -z "$HERMES_BIN" ]; then
-            echo "❌ hermes 未装上"
-            echo "--- pip show hermes-agent ---"
-            python3 -m pip show hermes-agent 2>&1 || true
-            echo "--- install-1.log 末尾 50 行 ---"
-            tail -50 install-1.log || true
+            echo "❌ hermes 未装上，开始诊断..."
+            echo "--- sudo pip3 show hermes-agent（install 是 sudo 装的）---"
+            sudo python3 -m pip show hermes-agent 2>&1 || true
+            echo "--- 全盘查找 hermes 可执行文件（限时 30s）---"
+            sudo timeout 30 find / -name hermes -type f 2>/dev/null | head -20 || true
+            echo "--- install-1.log 完整内容 ---"
+            cat install-1.log || true
             exit 1
           fi
           "$HERMES_BIN" --version || { echo "❌ hermes --version 执行失败"; exit 1; }
