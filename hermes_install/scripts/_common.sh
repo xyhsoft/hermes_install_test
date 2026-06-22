@@ -32,6 +32,7 @@ detect_platform() {
     case "$ARCH" in
         x86_64)  ARCH_RAW="x64" ;;
         aarch64) ARCH_RAW="arm64" ;;
+        arm64)   ARCH_RAW="arm64" ;;   # macOS Apple Silicon 的 uname -m 返回 arm64
         *) error "不支持的架构: $ARCH"; exit 1 ;;
     esac
 
