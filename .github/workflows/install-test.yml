@@ -189,75 +189,60 @@ jobs:
           EOF
           docker build -t uos20-sim -f Dockerfile.uos20 .
 
-      - name: 打印模拟环境关键版本
+      - name: 启动持久化容器（关键：所有 step 共享同一容器状态）
         run: |
-          docker run --rm uos20-sim bash -c '
-            echo "=== glibc 版本（UOS20 真机为 2.28，本镜像为 bookworm 2.36，仍可验证 webkit 预检）==="
-            ldd --version | head -1
-            echo "=== webkit2gtk 检测（应为空，模拟 UOS20 不达标）==="
+          docker run -d --name hermes-test \
+            -v "$PWD:/work" -w /work \
+            uos20-sim sleep infinity
+          docker exec hermes-test bash -c '
+            echo "=== glibc 版本 ==="; ldd --version | head -1
+            echo "=== webkit2gtk 检测（应为空）==="
             pkg-config --modversion webkit2gtk-4.1 2>/dev/null || echo "webkit2gtk-4.1: 无"
             pkg-config --modversion webkit2gtk-4.0 2>/dev/null || echo "webkit2gtk-4.0: 无"
-            echo "=== python3（hermes 要求 >= 3.11）==="
-            python3 --version
+            echo "=== python3 ==="; python3 --version
           '
 
       - name: 安装（第一次）
         run: |
           set -x
-          docker run --rm \
-            -v "$PWD:/work" \
-            -w /work \
-            uos20-sim \
-            bash -c 'bash hermes_install/scripts/install.sh --skip-provider-config --skip-autostart --skip-connectivity-test --skip-browser-act' 2>&1 | tee install-1.log
+          docker exec hermes-test bash -c 'bash hermes_install/scripts/install.sh --skip-provider-config --skip-autostart --skip-connectivity-test --skip-browser-act' 2>&1 | tee install-1.log
           echo "install-1 完成"
 
       - name: 验证安装产物 + CC-Switch 预检跳过
         run: |
           set -e
           echo "=== 在 UOS20 模拟容器内验证 ==="
-          docker run --rm \
-            -v "$PWD:/work" \
-            -w /work \
-            uos20-sim \
-            bash -c '
-              source /etc/profile 2>/dev/null || true
-              export PATH="/usr/local/hermes:/usr/local/hermes/lark:/usr/local/bin:/usr/bin:/bin:$PATH"
-              export HERMES_HOME="/var/lib/hermes"
-              echo "--- CC-Switch 预检应已跳过（install-1.log 中查找）---"
-              grep -iE "webkit|CC-Switch 预检不通过|跳过安装" /work/install-1.log || echo "⚠️ 未找到预检跳过字样"
-              echo "--- hermes 定位 ---"
-              HERMES_BIN=$(command -v hermes 2>/dev/null || true)
-              for p in /usr/local/bin/hermes /usr/bin/hermes /root/.local/bin/hermes; do [ -x "$p" ] && HERMES_BIN="$p" && break; done
-              echo "hermes 可执行: ${HERMES_BIN:-未找到}"
-              if [ -z "$HERMES_BIN" ]; then
-                echo "❌ hermes 未装上"
-                python3 -m pip show hermes-agent 2>&1 || true
-                echo "--- install-1.log 末尾 40 行 ---"
-                tail -40 /work/install-1.log || true
-                exit 1
-              fi
-              "$HERMES_BIN" --version || { echo "❌ hermes --version 失败"; exit 1; }
-              echo "✅ hermes 已装上"
-              test -x /usr/local/hermes/lark/lark && echo "✅ lark 存在" || echo "⚠️ lark 未找到"
-              echo "--- 依赖清单 ---"
-              [ -f "$HERMES_HOME/installed-deps.txt" ] && { echo "✅ 依赖清单:"; cat "$HERMES_HOME/installed-deps.txt"; } || echo "⚠️ 依赖清单未生成"
-              echo "--- CC-Switch 应未安装（预检跳过）---"
-              if command -v cc-switch >/dev/null 2>&1 || [ -x /opt/cc-switch/CC-Switch.AppImage ]; then
-                echo "❌ CC-Switch 不该装上却装了（预检未生效）"
-                exit 1
-              else
-                echo "✅ CC-Switch 已正确跳过（预检生效）"
-              fi
-            '
+          docker exec hermes-test bash -c '
+            source /etc/profile 2>/dev/null || true
+            export PATH="/usr/local/hermes:/usr/local/hermes/lark:/usr/local/bin:/usr/bin:/bin:$PATH"
+            export HERMES_HOME="/var/lib/hermes"
+            echo "--- hermes 定位 ---"
+            HERMES_BIN=$(command -v hermes 2>/dev/null || true)
+            for p in /usr/local/bin/hermes /usr/bin/hermes /root/.local/bin/hermes; do [ -x "$p" ] && HERMES_BIN="$p" && break; done
+            echo "hermes 可执行: ${HERMES_BIN:-未找到}"
+            if [ -z "$HERMES_BIN" ]; then
+              echo "❌ hermes 未装上"
+              python3 -m pip show hermes-agent 2>&1 || true
+              exit 1
+            fi
+            "$HERMES_BIN" --version || { echo "❌ hermes --version 失败"; exit 1; }
+            echo "✅ hermes 已装上"
+            test -x /usr/local/hermes/lark/lark && echo "✅ lark 存在" || echo "⚠️ lark 未找到"
+            echo "--- 依赖清单 ---"
+            [ -f "$HERMES_HOME/installed-deps.txt" ] && { echo "✅ 依赖清单:"; cat "$HERMES_HOME/installed-deps.txt"; } || echo "⚠️ 依赖清单未生成"
+            echo "--- CC-Switch 应未安装（预检跳过）---"
+            if command -v cc-switch >/dev/null 2>&1 || [ -x /opt/cc-switch/CC-Switch.AppImage ]; then
+              echo "❌ CC-Switch 不该装上却装了（预检未生效）"
+              exit 1
+            else
+              echo "✅ CC-Switch 已正确跳过（预检生效）"
+            fi
+          '
 
       - name: 幂等性测试
         run: |
           set -x
-          docker run --rm \
-            -v "$PWD:/work" \
-            -w /work \
-            uos20-sim \
-            bash -c 'bash hermes_install/scripts/install.sh --skip-provider-config --skip-autostart --skip-connectivity-test --skip-browser-act 2>&1' | tee install-2.log
+          docker exec hermes-test bash -c 'bash hermes_install/scripts/install.sh --skip-provider-config --skip-autostart --skip-connectivity-test --skip-browser-act' 2>&1 | tee install-2.log
           if grep -qE "跳过|已是.*版本|已装" install-2.log; then
             echo "✅ 幂等性生效"
           else
@@ -268,24 +253,21 @@ jobs:
         if: github.event.inputs.run_uninstall != 'false' && github.event_name != 'pull_request'
         run: |
           set -x
-          printf 'y\n' | docker run --rm -i \
-            -v "$PWD:/work" \
-            -w /work \
-            uos20-sim \
-            bash -c 'bash hermes_install/scripts/uninstall.sh --remove-config --remove-deps' 2>&1 | tee uninstall.log
+          # 卸载脚本有确认提示，CI 模式下跳过（install.sh 已检测 HERMES_CI 但卸载脚本也需处理）
+          printf 'y\n' | docker exec -i hermes-test bash -c 'bash hermes_install/scripts/uninstall.sh --remove-config --remove-deps' 2>&1 | tee uninstall.log
           echo "=== 验证卸载结果 ==="
-          docker run --rm \
-            -v "$PWD:/work" \
-            -w /work \
-            uos20-sim \
-            bash -c '
-              export PATH="/usr/local/bin:/usr/bin:/bin:$PATH"
-              if command -v hermes >/dev/null 2>&1 && hermes --version >/dev/null 2>&1; then
-                echo "❌ hermes 仍可用，卸载失败"; exit 1
-              fi
-              echo "✅ hermes 已卸载"
-              test -d /usr/local/hermes && echo "⚠️ 安装目录仍存在" || echo "✅ 安装目录已删除"
-            '
+          docker exec hermes-test bash -c '
+            export PATH="/usr/local/bin:/usr/bin:/bin:$PATH"
+            if command -v hermes >/dev/null 2>&1 && hermes --version >/dev/null 2>&1; then
+              echo "❌ hermes 仍可用，卸载失败"; exit 1
+            fi
+            echo "✅ hermes 已卸载"
+            test -d /usr/local/hermes && echo "⚠️ 安装目录仍存在" || echo "✅ 安装目录已删除"
+          '
+
+      - name: 清理容器
+        if: always()
+        run: docker rm -f hermes-test 2>/dev/null || true
 
       - name: 上传日志
         if: always()
