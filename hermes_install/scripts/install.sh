@@ -224,19 +224,44 @@ install_hermes() {
     fi
 
     # 执行安装
+    local hermes_install_ok=false
     if [[ -n "$offline_wheel" ]]; then
         info "使用离线包: $(basename "$offline_wheel")"
         # 离线 wheel 的 transitive deps 仍需联网；无网时会失败
-        if ! python3 -m pip install "$offline_wheel" 2>/dev/null; then
-            warn "离线包安装失败（可能缺少 transitive deps）"
-            warn "离线模式暂不支持自动补齐依赖，请改用在线安装或自行补齐离线包"
-            return 1
+        if python3 -m pip install "$offline_wheel" 2>/dev/null; then
+            hermes_install_ok=true
+        else
+            warn "离线包直接 pip 装失败，尝试 venv 兜底..."
         fi
     elif [[ -n "$target" ]]; then
-        pip_install_with_mirror "hermes-agent==$target"
+        if pip_install_with_mirror "hermes-agent==$target"; then
+            hermes_install_ok=true
+        else
+            warn "pip_install_with_mirror 失败，尝试 venv 兜底..."
+        fi
     else
         warn "无法获取 Hermes Agent 版本（无网且无离线包），Hermes 暂时装不了"
         return 1
+    fi
+
+    # 兜底：直接 pip 装失败时，用 venv 装到 /opt/hermes-venv（绕过 PEP 668 等系统 python 限制）
+    if [[ "$hermes_install_ok" != "true" ]]; then
+        local venv_dir="/opt/hermes-venv"
+        info "尝试 venv 兜底安装到 $venv_dir ..."
+        if python3 -m venv "$venv_dir" 2>/dev/null; then
+            if "$venv_dir/bin/pip" install --quiet "hermes-agent${target:+==$target}" 2>/dev/null; then
+                info "venv 兜底安装成功"
+                hermes_install_ok=true
+                # 把 venv bin 加入 PATH，后续 hermes 定位会找到
+                export PATH="$venv_dir/bin:$PATH"
+            else
+                error "venv 兜底也失败"
+                return 1
+            fi
+        else
+            error "无法创建 venv（python3-venv 未安装？）"
+            return 1
+        fi
     fi
 }
 
