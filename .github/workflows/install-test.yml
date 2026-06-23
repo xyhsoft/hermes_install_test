@@ -86,14 +86,19 @@ jobs:
           echo "hermes 可执行: ${HERMES_BIN:-未找到}"
           if [ -z "$HERMES_BIN" ]; then
             echo "❌ hermes 未装上，开始诊断..."
-            echo "--- sudo pip3 show hermes-agent（install 是 sudo 装的）---"
+            echo "--- .hermes-bin-path 文件内容（install.sh 记录的）---"
+            sudo cat "$HERMES_HOME/.hermes-bin-path" 2>/dev/null || echo "(文件不存在，install_hermes 可能失败)"
+            echo "--- which python3 / python3 --version ---"
+            which python3; python3 --version
+            echo "--- sudo python3 -m pip show hermes-agent ---"
             sudo python3 -m pip show hermes-agent 2>&1 || true
             echo "--- sudo python3 -m pip list | grep hermes ---"
             sudo python3 -m pip list 2>/dev/null | grep -i hermes || echo "(pip list 无 hermes)"
-            echo "--- 全盘查找 hermes* 可执行文件（限时 30s）---"
-            sudo timeout 30 find / -name 'hermes*' -type f 2>/dev/null | head -20 || true
-            echo "--- install-1.log 中 hermes/pip/ERROR 相关行 ---"
-            grep -iE 'hermes|pip|ERROR|失败|successfully installed|externally-managed|Cannot uninstall' install-1.log 2>/dev/null | tail -40 || true
+            echo "--- brew python 路径 ---"
+            brew --prefix python3 2>/dev/null || echo "(无 brew)"
+            ls /opt/homebrew/opt/python@3*/bin/hermes 2>/dev/null || echo "(brew python bin 无 hermes)"
+            echo "--- install-1.log 中 Hermes Agent 安装段（处理 Hermes 到处理飞书）---"
+            sed -n '/处理 Hermes Agent/,/处理飞书 CLI/p' install-1.log 2>/dev/null | head -60 || true
             echo "--- install-1.log 末尾 30 行 ---"
             tail -30 install-1.log 2>/dev/null || true
             exit 1
@@ -206,10 +211,8 @@ jobs:
             -v "$PWD:/work" \
             -w /work \
             uos20-sim \
-            bash -c 'bash hermes_install/scripts/install.sh $INSTALL_FLAGS' 2>&1 | tee install-1.log
+            bash -c 'bash hermes_install/scripts/install.sh --skip-provider-config --skip-autostart --skip-connectivity-test --skip-browser-act' 2>&1 | tee install-1.log
           echo "install-1 完成"
-        env:
-          INSTALL_FLAGS: ${{ env.INSTALL_FLAGS }}
 
       - name: 验证安装产物 + CC-Switch 预检跳过
         run: |
@@ -257,14 +260,12 @@ jobs:
             -v "$PWD:/work" \
             -w /work \
             uos20-sim \
-            bash -c 'bash hermes_install/scripts/install.sh $INSTALL_FLAGS 2>&1' | tee install-2.log
+            bash -c 'bash hermes_install/scripts/install.sh --skip-provider-config --skip-autostart --skip-connectivity-test --skip-browser-act 2>&1' | tee install-2.log
           if grep -qE "跳过|已是.*版本|已装" install-2.log; then
             echo "✅ 幂等性生效"
           else
             echo "⚠️ 幂等性未检测到跳过字样"
           fi
-        env:
-          INSTALL_FLAGS: ${{ env.INSTALL_FLAGS }}
 
       - name: 卸载测试
         if: github.event.inputs.run_uninstall != 'false' && github.event_name != 'pull_request'
