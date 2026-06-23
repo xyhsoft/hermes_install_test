@@ -66,7 +66,15 @@ jobs:
           export PATH="/usr/local/hermes:/usr/local/hermes/lark:/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin:$PATH"
           export HERMES_HOME="${HERMES_HOME:-/var/lib/hermes}"
           echo "=== hermes 定位 ==="
-          HERMES_BIN=$(command -v hermes 2>/dev/null || true)
+          # 优先读 install.sh 记录的 hermes 路径（macOS sudo 下 PATH 复杂，install.sh 已记录真实位置）
+          HERMES_BIN=""
+          if [ -f "$HERMES_HOME/.hermes-bin-path" ]; then
+            HERMES_BIN=$(cat "$HERMES_HOME/.hermes-bin-path" 2>/dev/null)
+            [ -x "$HERMES_BIN" ] || HERMES_BIN=""
+          fi
+          if [ -z "$HERMES_BIN" ]; then
+            HERMES_BIN=$(command -v hermes 2>/dev/null || true)
+          fi
           if [ -z "$HERMES_BIN" ]; then
             for p in /usr/local/bin/hermes /usr/bin/hermes /root/.local/bin/hermes "$HOME/.local/bin/hermes" \
                      /opt/homebrew/bin/hermes /opt/homebrew/opt/python@3.12/bin/hermes /opt/homebrew/opt/python@3.13/bin/hermes \
@@ -167,11 +175,16 @@ jobs:
           cat > Dockerfile.uos20 <<'EOF'
           FROM debian:10
           # debian:10(buster) = UOS V20 上游基础：glibc 2.28、webkit2gtk 2.24
-          # 故意不装 libwebkit2gtk-4.0/4.1，模拟 UOS20 上 webkit 不达标的场景，验证 CC-Switch 预检跳过
-          RUN apt-get update && \
+          # buster 已 EOL，官方源 404，换 archive.debian.org
+          RUN sed -i 's|http://deb.debian.org/debian|http://archive.debian.org/debian|g' /etc/apt/sources.list && \
+              sed -i 's|http://deb.debian.org/debian-security|http://archive.debian.org/debian-security|g' /etc/apt/sources.list && \
+              sed -i '/buster-updates/d' /etc/apt/sources.list && \
+              echo 'Acquire::Check-Valid-Until "false";' > /etc/apt/apt.conf.d/99no-check-valid && \
+              apt-get update && \
               apt-get install -y --no-install-recommends \
                 python3 python3-pip python3-venv curl wget ca-certificates tar sudo && \
               apt-get clean && rm -rf /var/lib/apt/lists/*
+          # 故意不装 libwebkit2gtk-4.0/4.1，模拟 UOS20 上 webkit 不达标的场景，验证 CC-Switch 预检跳过
           EOF
           docker build -t uos20-sim -f Dockerfile.uos20 .
 

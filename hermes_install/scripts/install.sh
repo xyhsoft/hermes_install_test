@@ -212,7 +212,7 @@ install_hermes() {
     if [[ -n "$offline_wheel" ]]; then
         info "使用离线包: $(basename "$offline_wheel")"
         # 离线 wheel 的 transitive deps 仍需联网；无网时会失败
-        if ! pip3 install "$offline_wheel" 2>/dev/null; then
+        if ! python3 -m pip install "$offline_wheel" 2>/dev/null; then
             warn "离线包安装失败（可能缺少 transitive deps）"
             warn "离线模式暂不支持自动补齐依赖，请改用在线安装或自行补齐离线包"
             return 1
@@ -226,6 +226,29 @@ install_hermes() {
 }
 
 install_hermes || warn "Hermes Agent 安装未完成"
+
+# 记录 hermes 二进制实际路径，供 CI 验证 step 读取（macOS sudo 下 PATH 复杂，避免找不到）
+HERMES_BIN_PATH=""
+if command -v hermes &>/dev/null; then
+    HERMES_BIN_PATH=$(command -v hermes)
+elif [[ -x /usr/local/bin/hermes ]]; then
+    HERMES_BIN_PATH=/usr/local/bin/hermes
+else
+    # python3 -m pip 装的 console script 通常在 sys.prefix/bin
+    HERMES_BIN_PATH=$(python3 -c "import sys,os; p=os.path.join(sys.prefix,'bin','hermes'); print(p if os.path.exists(p) else '')" 2>/dev/null)
+fi
+if [[ -n "$HERMES_BIN_PATH" ]] && [[ -x "$HERMES_BIN_PATH" ]]; then
+    info "hermes 二进制位于: $HERMES_BIN_PATH"
+    mkdir -p "$HERMES_HOME"
+    echo "$HERMES_BIN_PATH" > "$HERMES_HOME/.hermes-bin-path" 2>/dev/null || true
+    # 把 hermes 所在 bin 目录也写进 profile.d，确保非 sudo 终端能找到
+    HERMES_BIN_DIR=$(dirname "$HERMES_BIN_PATH")
+    if [[ "$OS_KIND" == "macos" ]]; then
+        # 追加到 hermes.sh（若未含）
+        grep -q "$HERMES_BIN_DIR" /etc/profile.d/hermes.sh 2>/dev/null \
+            || sed -i '' "s|export PATH=\"|export PATH=\"$HERMES_BIN_DIR:|" /etc/profile.d/hermes.sh 2>/dev/null || true
+    fi
+fi
 
 # ============================================================
 # 飞书 CLI 幂等安装

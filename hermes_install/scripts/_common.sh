@@ -112,7 +112,7 @@ pip_install_with_mirror() {
     for mirror in "${PIP_MIRRORS[@]}"; do
         host=$(extract_host "$mirror")
         info "尝试镜像源: $mirror"
-        if pip3 install "$@" $break_flag -i "$mirror" --trusted-host "$host"; then
+        if python3 -m pip install "$@" $break_flag -i "$mirror" --trusted-host "$host"; then
             return 0
         fi
         warn "源 $mirror 失败，尝试下一个..."
@@ -122,7 +122,7 @@ pip_install_with_mirror() {
     warn "常规安装失败，尝试 --ignore-installed 兜底..."
     for mirror in "${PIP_MIRRORS[@]}"; do
         host=$(extract_host "$mirror")
-        if pip3 install "$@" $break_flag --ignore-installed -i "$mirror" --trusted-host "$host"; then
+        if python3 -m pip install "$@" $break_flag --ignore-installed -i "$mirror" --trusted-host "$host"; then
             return 0
         fi
     done
