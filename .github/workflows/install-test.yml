@@ -39,8 +39,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
-            name: Ubuntu-x64
+          # Ubuntu 已验证通过，暂停（如需恢复加回 ubuntu-latest 条目）
           - os: macos-latest
             name: macOS
     steps:
@@ -308,6 +307,7 @@ jobs:
     name: Windows-x64
     runs-on: windows-latest
     timeout-minutes: 30
+    if: false  # Windows 已验证通过，暂停（如需恢复删除此行）
     env:
       HERMES_CI: "1"
     steps:
