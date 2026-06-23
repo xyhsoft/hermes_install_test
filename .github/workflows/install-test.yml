@@ -162,45 +162,42 @@ jobs:
           if-no-files-found: ignore
 
   # ============================================================
-  # UOS V20 桌面版模拟测试（debian:10 buster，glibc 2.28 / webkit2gtk 2.24 与 UOS20 一致）
+  # UOS V20 桌面版模拟测试（python:3.11-slim，debian bookworm 基础，不装 webkit2gtk）
   # 验证：apt 分支 + CC-Switch 预检跳过（webkit 不达标）+ Hermes/lark 装上 + 卸载干净
+  # 注：UOS20 真机默认 python 3.7/3.9 装不了 hermes-agent（需 3.11+），CI 用 python:3.11
+  #     镜像模拟"已装好 python 3.11"的场景；真机测试需用户先装 python 3.11+
   # 无头容器测不了 CC-Switch 真实运行和桌面自启动，那部分需真实 UOS 机器验证
   # ============================================================
   test-uos-sim:
-    name: UOS20-sim(Debian10)
+    name: UOS20-sim(Python3.11)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: 构建 UOS20 模拟镜像（debian:10 buster，不装 webkit2gtk 以模拟 UOS20 旧 webkit）
+      - name: 构建 UOS20 模拟镜像（python:3.11-slim，不装 webkit2gtk 以验证 CC-Switch 预检跳过）
         run: |
           cat > Dockerfile.uos20 <<'EOF'
-          FROM debian:10
-          # debian:10(buster) = UOS V20 上游基础：glibc 2.28、webkit2gtk 2.24
-          # buster 已 EOL，官方源 404，换 archive.debian.org
-          RUN sed -i 's|http://deb.debian.org/debian|http://archive.debian.org/debian|g' /etc/apt/sources.list && \
-              sed -i 's|http://deb.debian.org/debian-security|http://archive.debian.org/debian-security|g' /etc/apt/sources.list && \
-              sed -i '/buster-updates/d' /etc/apt/sources.list && \
-              echo 'Acquire::Check-Valid-Until "false";' > /etc/apt/apt.conf.d/99no-check-valid && \
-              apt-get update && \
+          FROM python:3.11-slim
+          # python:3.11-slim 基于 debian bookworm，自带 python 3.11 + pip
+          # 故意不装 libwebkit2gtk，模拟 UOS20 上 webkit 不达标的场景，验证 CC-Switch 预检跳过
+          RUN apt-get update && \
               apt-get install -y --no-install-recommends \
-                python3 python3-pip python3-venv curl wget ca-certificates tar sudo && \
+                curl wget ca-certificates tar sudo && \
               apt-get clean && rm -rf /var/lib/apt/lists/*
-          # 故意不装 libwebkit2gtk-4.0/4.1，模拟 UOS20 上 webkit 不达标的场景，验证 CC-Switch 预检跳过
           EOF
           docker build -t uos20-sim -f Dockerfile.uos20 .
 
       - name: 打印模拟环境关键版本
         run: |
           docker run --rm uos20-sim bash -c '
-            echo "=== glibc 版本（UOS20 为 2.28）==="
+            echo "=== glibc 版本（UOS20 真机为 2.28，本镜像为 bookworm 2.36，仍可验证 webkit 预检）==="
             ldd --version | head -1
             echo "=== webkit2gtk 检测（应为空，模拟 UOS20 不达标）==="
             pkg-config --modversion webkit2gtk-4.1 2>/dev/null || echo "webkit2gtk-4.1: 无"
             pkg-config --modversion webkit2gtk-4.0 2>/dev/null || echo "webkit2gtk-4.0: 无"
-            echo "=== python3 ==="
+            echo "=== python3（hermes 要求 >= 3.11）==="
             python3 --version
           '
 

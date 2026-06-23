@@ -155,8 +155,23 @@ install_system_deps() {
 
     # 升级 pip（不计入新装清单）
     if command -v python3 &>/dev/null; then
+        # 检查 python 版本（hermes-agent 需要 >= 3.11）
+        local py_version
+        py_version=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")' 2>/dev/null)
+        info "检测到 Python 版本: ${py_version:-未知}"
+        if [[ -n "$py_version" ]] && ! ver_ge "$py_version" "3.11"; then
+            error "Python 版本 $py_version 低于 3.11，hermes-agent 无法安装"
+            error "请先安装 Python 3.11+，再重新运行本脚本"
+            error "  Ubuntu/Debian: apt install python3.11 或用 deadsnakes PPA"
+            error "  macOS: brew install python@3.11"
+            error "  通用: pyenv install 3.11 && pyenv global 3.11"
+            return 1
+        fi
         info "升级 pip..."
         python3 -m pip install --upgrade pip 2>/dev/null || warn "pip 升级失败（不中断）"
+    else
+        error "未检测到 python3"
+        return 1
     fi
 
     # 安装后快照 + 差集 = 新装清单
