@@ -160,12 +160,46 @@ install_system_deps() {
         py_version=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")' 2>/dev/null)
         info "检测到 Python 版本: ${py_version:-未知}"
         if [[ -n "$py_version" ]] && ! ver_ge "$py_version" "3.11"; then
-            error "Python 版本 $py_version 低于 3.11，hermes-agent 无法安装"
-            error "请先安装 Python 3.11+，再重新运行本脚本"
-            error "  Ubuntu/Debian: apt install python3.11 或用 deadsnakes PPA"
-            error "  macOS: brew install python@3.11"
-            error "  通用: pyenv install 3.11 && pyenv global 3.11"
-            return 1
+            # macOS 上自动装 brew python@3.12（sudo 下系统 python 往往是 3.9，装不了 hermes）
+            if [[ "$OS_KIND" == "macos" ]]; then
+                info "Python $py_version 低于 3.11，尝试 brew install python@3.12..."
+                if [[ -x /opt/homebrew/bin/brew ]]; then
+                    eval "$(/opt/homebrew/bin/brew shellenv)"
+                elif [[ -x /usr/local/bin/brew ]]; then
+                    eval "$(/usr/local/bin/brew shellenv)"
+                fi
+                if command -v brew &>/dev/null; then
+                    brew install python@3.12 2>/dev/null || brew install python 2>/dev/null || true
+                    # 找新装的 brew python 3.12/3.13
+                    for candidate in \
+                        /opt/homebrew/opt/python@3.12/bin/python3.12 \
+                        /opt/homebrew/opt/python@3.13/bin/python3.13 \
+                        /opt/homebrew/bin/python3.12 \
+                        /opt/homebrew/bin/python3 \
+                        /usr/local/opt/python@3.12/bin/python3.12 \
+                        /usr/local/bin/python3; do
+                        if [[ -x "$candidate" ]]; then
+                            local candidate_ver
+                            candidate_ver=$("$candidate" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null)
+                            if ver_ge "$candidate_ver" "3.11"; then
+                                info "切到 brew python: $candidate (版本 $candidate_ver)"
+                                export PATH="$(dirname "$candidate"):$PATH"
+                                py_version=$("$candidate" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")' 2>/dev/null)
+                                break
+                            fi
+                        fi
+                    done
+                fi
+            fi
+            if ! ver_ge "$py_version" "3.11"; then
+                error "Python 版本 $py_version 低于 3.11，hermes-agent 无法安装"
+                error "请先安装 Python 3.11+，再重新运行本脚本"
+                error "  Ubuntu/Debian: apt install python3.11 或用 deadsnakes PPA"
+                error "  macOS: brew install python@3.11"
+                error "  通用: pyenv install 3.11 && pyenv global 3.11"
+                return 1
+            fi
+            info "已切到 Python $py_version"
         fi
         info "升级 pip..."
         python3 -m pip install --upgrade pip 2>/dev/null || warn "pip 升级失败（不中断）"
