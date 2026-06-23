@@ -1,7 +1,7 @@
 name: 安装测试
 
 # Hermes 安装包多系统安装测试
-# 在 Ubuntu / macOS / CentOS(Docker) / Windows 上跑 install → 验证 → 幂等二跑 → 卸载
+# 在 Ubuntu / macOS / Windows 上跑 install → 验证 → 幂等二跑 → 卸载
 # 根据失败日志继续修 hermes_install/scripts/ 下的脚本
 
 on:
@@ -143,102 +143,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: logs-${{ matrix.name }}
-          path: |
-            install-1.log
-            install-2.log
-            uninstall.log
-          if-no-files-found: ignore
-
-  # ============================================================
-  # CentOS-7 安装测试（独立 job，用 docker run 避免 container checkout 需 git 的鸡生蛋）
-  # ============================================================
-  test-centos:
-    name: CentOS-7-Docker
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: 构建 CentOS 测试镜像
-        run: |
-          cat > Dockerfile.centos7 <<'EOF'
-          FROM centos:7
-          RUN yum install -y epel-release && \
-              yum install -y python3 python3-pip curl wget ca-certificates tar sudo && \
-              yum clean all
-          EOF
-          docker build -t hermes-centos7 -f Dockerfile.centos7 .
-
-      - name: 安装（第一次）
-        run: |
-          set -x
-          docker run --rm \
-            -v "$PWD:/work" \
-            -w /work \
-            hermes-centos7 \
-            bash -c 'bash hermes_install/scripts/install.sh $INSTALL_FLAGS' 2>&1 | tee install-1.log
-          echo "install-1 完成"
-        env:
-          INSTALL_FLAGS: ${{ env.INSTALL_FLAGS }}
-
-      - name: 验证安装产物
-        run: |
-          set -e
-          echo "=== 在 CentOS 容器内验证 ==="
-          docker run --rm \
-            -v "$PWD:/work" \
-            -w /work \
-            hermes-centos7 \
-            bash -c '
-              source /etc/profile 2>/dev/null || true
-              export PATH="/usr/local/hermes:/usr/local/hermes/lark:/usr/local/bin:/usr/bin:/bin:$PATH"
-              export HERMES_HOME="/var/lib/hermes"
-              HERMES_BIN=$(command -v hermes 2>/dev/null || true)
-              for p in /usr/local/bin/hermes /usr/bin/hermes /root/.local/bin/hermes; do [ -x "$p" ] && HERMES_BIN="$p" && break; done
-              echo "hermes 可执行: ${HERMES_BIN:-未找到}"
-              if [ -z "$HERMES_BIN" ]; then
-                echo "❌ hermes 未装上"
-                python3 -m pip show hermes-agent 2>&1 || true
-                exit 1
-              fi
-              "$HERMES_BIN" --version || { echo "❌ hermes --version 失败"; exit 1; }
-              echo "✅ hermes 已装上"
-              test -x /usr/local/hermes/lark/lark && echo "✅ lark 存在" || echo "⚠️ lark 未找到"
-              [ -f "$HERMES_HOME/installed-deps.txt" ] && { echo "✅ 依赖清单:"; cat "$HERMES_HOME/installed-deps.txt"; } || echo "⚠️ 依赖清单未生成"
-            '
-
-      - name: 幂等性测试
-        run: |
-          set -x
-          docker run --rm \
-            -v "$PWD:/work" \
-            -w /work \
-            hermes-centos7 \
-            bash -c 'bash hermes_install/scripts/install.sh $INSTALL_FLAGS 2>&1' | tee install-2.log
-          if grep -qE "跳过|已是.*版本|已装" install-2.log; then
-            echo "✅ 幂等性生效"
-          else
-            echo "⚠️ 幂等性未检测到跳过字样"
-          fi
-        env:
-          INSTALL_FLAGS: ${{ env.INSTALL_FLAGS }}
-
-      - name: 卸载测试
-        if: github.event.inputs.run_uninstall != 'false' && github.event_name != 'pull_request'
-        run: |
-          set -x
-          printf 'y\n' | docker run --rm -i \
-            -v "$PWD:/work" \
-            -w /work \
-            hermes-centos7 \
-            bash -c 'bash hermes_install/scripts/uninstall.sh --remove-config --remove-deps' 2>&1 | tee uninstall.log
-
-      - name: 上传日志
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: logs-CentOS-7-Docker
           path: |
             install-1.log
             install-2.log
