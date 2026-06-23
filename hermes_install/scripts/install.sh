@@ -228,14 +228,26 @@ install_hermes() {
 install_hermes || warn "Hermes Agent 安装未完成"
 
 # 记录 hermes 二进制实际路径，供 CI 验证 step 读取（macOS sudo 下 PATH 复杂，避免找不到）
+# 策略：先 command -v，再用 python3 -m pip show 拿 Location 推导 bin 目录，再穷举常见路径
 HERMES_BIN_PATH=""
 if command -v hermes &>/dev/null; then
     HERMES_BIN_PATH=$(command -v hermes)
-elif [[ -x /usr/local/bin/hermes ]]; then
-    HERMES_BIN_PATH=/usr/local/bin/hermes
 else
-    # python3 -m pip 装的 console script 通常在 sys.prefix/bin
-    HERMES_BIN_PATH=$(python3 -c "import sys,os; p=os.path.join(sys.prefix,'bin','hermes'); print(p if os.path.exists(p) else '')" 2>/dev/null)
+    # 从 pip show 拿 hermes-agent 安装位置，推导 bin 目录
+    PIP_LOCATION=$(python3 -m pip show hermes-agent 2>/dev/null | grep -E '^Location:' | awk '{print $2}')
+    if [[ -n "$PIP_LOCATION" ]]; then
+        info "hermes-agent pip Location: $PIP_LOCATION"
+        # bin 目录常见位置：sys.prefix/bin、user-base/bin、或 Location 的父级/bin
+        for candidate in \
+            "$(python3 -c 'import sys; print(sys.prefix)' 2>/dev/null)/bin/hermes" \
+            "$(python3 -m site --user-base 2>/dev/null)/bin/hermes" \
+            "$HOME/.local/bin/hermes" \
+            "/usr/local/bin/hermes" \
+            "/usr/bin/hermes" \
+            "$(dirname "$PIP_LOCATION")/../bin/hermes"; do
+            [[ -x "$candidate" ]] && HERMES_BIN_PATH="$candidate" && break
+        done
+    fi
 fi
 if [[ -n "$HERMES_BIN_PATH" ]] && [[ -x "$HERMES_BIN_PATH" ]]; then
     info "hermes 二进制位于: $HERMES_BIN_PATH"
@@ -247,7 +259,23 @@ if [[ -n "$HERMES_BIN_PATH" ]] && [[ -x "$HERMES_BIN_PATH" ]]; then
         # 追加到 hermes.sh（若未含）
         grep -q "$HERMES_BIN_DIR" /etc/profile.d/hermes.sh 2>/dev/null \
             || sed -i '' "s|export PATH=\"|export PATH=\"$HERMES_BIN_DIR:|" /etc/profile.d/hermes.sh 2>/dev/null || true
+    elif [[ "$OS_KIND" != "macos" ]]; then
+        # Linux：也追加到 /etc/profile（若未含该目录）
+        grep -q "$HERMES_BIN_DIR" /etc/profile 2>/dev/null \
+            || echo "export PATH=\"$HERMES_BIN_DIR:\$PATH\"" >> /etc/profile 2>/dev/null || true
     fi
+    # 兜底：创建 symlink 到 /usr/local/bin（hermes 不在 /usr/local/bin 且 /usr/local/bin 可写时）
+    if [[ "$HERMES_BIN_PATH" != "/usr/local/bin/hermes" ]] && [[ -d /usr/local/bin ]] && [[ -w /usr/local/bin ]]; then
+        ln -sf "$HERMES_BIN_PATH" /usr/local/bin/hermes 2>/dev/null && \
+            info "已创建 symlink /usr/local/bin/hermes -> $HERMES_BIN_PATH" || true
+    fi
+else
+    warn "hermes 二进制未找到（pip 安装可能失败或未产出 console script）"
+    # 打印诊断
+    info "python3 位置: $(which python3 2>/dev/null || echo '未知')"
+    info "python3 版本: $(python3 --version 2>/dev/null || echo '未知')"
+    info "pip show hermes-agent:"
+    python3 -m pip show hermes-agent 2>/dev/null || info "(pip show 无输出)"
 fi
 
 # ============================================================
