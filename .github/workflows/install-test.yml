@@ -68,7 +68,11 @@ jobs:
           echo "=== hermes 定位 ==="
           HERMES_BIN=$(command -v hermes 2>/dev/null || true)
           if [ -z "$HERMES_BIN" ]; then
-            for p in /usr/local/bin/hermes /usr/bin/hermes /root/.local/bin/hermes "$HOME/.local/bin/hermes" /opt/homebrew/bin/hermes /usr/local/hermes/hermes /Library/Frameworks/Python.framework/Versions/3.12/bin/hermes /Library/Frameworks/Python.framework/Versions/3.13/bin/hermes; do
+            for p in /usr/local/bin/hermes /usr/bin/hermes /root/.local/bin/hermes "$HOME/.local/bin/hermes" \
+                     /opt/homebrew/bin/hermes /opt/homebrew/opt/python@3.12/bin/hermes /opt/homebrew/opt/python@3.13/bin/hermes \
+                     /usr/local/hermes/hermes \
+                     /Library/Frameworks/Python.framework/Versions/3.12/bin/hermes /Library/Frameworks/Python.framework/Versions/3.13/bin/hermes \
+                     /Library/Python/3.12/bin/hermes /Library/Python/3.9/bin/hermes; do
               [ -x "$p" ] && HERMES_BIN="$p" && break
             done
           fi

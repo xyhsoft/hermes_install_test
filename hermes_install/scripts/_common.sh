@@ -118,15 +118,14 @@ pip_install_with_mirror() {
         warn "源 $mirror 失败，尝试下一个..."
     done
     # 全部失败后，用 --ignore-installed 兜底（应对系统包 RECORD 缺失导致的卸载冲突，如 urllib3）
-    if [[ -n "$break_flag" ]]; then
-        warn "常规安装失败，尝试 --ignore-installed 兜底..."
-        for mirror in "${PIP_MIRRORS[@]}"; do
-            host=$(extract_host "$mirror")
-            if pip3 install "$@" $break_flag --ignore-installed -i "$mirror" --trusted-host "$host"; then
-                return 0
-            fi
-        done
-    fi
+    # 不依赖 break_flag —— 老 pip 也会遇到系统包冲突
+    warn "常规安装失败，尝试 --ignore-installed 兜底..."
+    for mirror in "${PIP_MIRRORS[@]}"; do
+        host=$(extract_host "$mirror")
+        if pip3 install "$@" $break_flag --ignore-installed -i "$mirror" --trusted-host "$host"; then
+            return 0
+        fi
+    done
     error "所有 pip 镜像源都失败"
     return 1
 }

@@ -133,9 +133,20 @@ install_system_deps() {
                     info "使用国内镜像安装 Homebrew..."
                     /bin/bash -c "$(curl -fsSL https://gitee.com/cunkai/HomebrewCN/raw/master/Homebrew.sh)" || true
                 }
-                [[ "$ARCH" == "arm64" ]] && eval "$(/opt/homebrew/bin/brew shellenv)"
             fi
-            command -v python3 &>/dev/null || brew install python3
+            # 确保 brew 环境生效（sudo bash 下 /opt/homebrew/bin 可能不在 PATH）
+            if [[ -x /opt/homebrew/bin/brew ]]; then
+                eval "$(/opt/homebrew/bin/brew shellenv)"
+            elif [[ -x /usr/local/bin/brew ]]; then
+                eval "$(/usr/local/bin/brew shellenv)"
+            fi
+            # 用 brew 的 python3（避免 sudo 下误用系统 /usr/bin/python3）
+            if ! command -v python3 &>/dev/null || [[ "$(command -v python3)" == "/usr/bin/python3" ]]; then
+                brew install python3 2>/dev/null || true
+            fi
+            # 记录 brew python 的 bin 路径，供后续 pip 装的 hermes 定位
+            BREW_PYTHON_BIN=$(python3 -c "import sys; print(sys.prefix)" 2>/dev/null)/bin
+            [[ -d "$BREW_PYTHON_BIN" ]] && export PATH="$BREW_PYTHON_BIN:$PATH"
             ;;
         none)
             warn "无法识别包管理器，跳过系统依赖安装。请确保 python3/pip/curl/wget 已就绪"
@@ -501,8 +512,11 @@ fi
 info "配置环境变量..."
 if [[ "$OS_KIND" == "macos" ]]; then
     # macOS: 写 /etc/profile.d/hermes.sh（paths.d 不执行 export 语法）
+    # 含 brew python bin（hermes 二进制装在那），让非 sudo 终端也能找到 hermes
+    extra_path=""
+    [[ -n "${BREW_PYTHON_BIN:-}" ]] && [[ -d "$BREW_PYTHON_BIN" ]] && extra_path="$BREW_PYTHON_BIN:"
     cat > /etc/profile.d/hermes.sh << EOF
-export PATH="$INSTALL_DIR:$LARK_DIR:\$PATH"
+export PATH="$extra_path$INSTALL_DIR:$LARK_DIR:\$PATH"
 export HERMES_HOME="$HERMES_HOME"
 EOF
 else
