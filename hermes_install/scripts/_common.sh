@@ -196,7 +196,7 @@ get_installed_lark_version() {
 # 版本号比较：ver_ge <a> <b>  → a >= b 返回 0
 ver_ge() {
     [[ "$1" == "$2" ]] && return 0
-    local IFS=. a1 a2 b1 b2 b3
+    local IFS=. a1 a2 a3 b1 b2 b3
     read -r a1 a2 a3 <<< "$1"
     read -r b1 b2 b3 <<< "$2"
     a1=${a1:-0}; a2=${a2:-0}; a3=${a3:-0}

@@ -75,7 +75,7 @@ else
     rm -f /usr/share/applications/cc-switch.desktop 2>/dev/null || true
 fi
 # 清理自启动
-if [[ -n "$SUDO_USER" ]]; then
+if [[ -n "${SUDO_USER:-}" ]]; then
     REAL_HOME=$(eval echo "~$SUDO_USER")
 else
     REAL_HOME="$HOME"

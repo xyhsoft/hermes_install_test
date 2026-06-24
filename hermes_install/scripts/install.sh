@@ -156,26 +156,23 @@ install_system_deps() {
     # 升级 pip（不计入新装清单）
     if command -v python3 &>/dev/null; then
         # 检查 python 版本（hermes-agent 需要 >= 3.11 且 < 3.14）
-        local py_version py_major_minor
+        local py_version py_major_minor need_brew_python
         py_version=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")' 2>/dev/null)
         py_major_minor=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null)
         info "检测到 Python 版本: ${py_version:-未知}"
-        local need_brew_python=false
-        local reason=""
-        if [[ -n "$py_version" ]]; then
-            if ! ver_ge "$py_version" "3.11"; then
+        need_brew_python=false
+        if [[ -n "${py_version:-}" ]]; then
+            if ! ver_ge "${py_version:-0.0}" "3.11"; then
                 need_brew_python=true
-                reason="低于 3.11"
-            elif ver_ge "$py_major_minor" "3.14"; then
+            elif ver_ge "${py_major_minor:-0.0}" "3.14"; then
                 # hermes-agent 0.17.0 Requires-Python <3.14，3.14+ 装不了
                 need_brew_python=true
-                reason=">= 3.14（hermes-agent 需要 < 3.14）"
             fi
         fi
         if [[ "$need_brew_python" == "true" ]]; then
             # macOS 上自动装 brew python@3.12（sudo 下系统 python 版本不对，装不了 hermes）
             if [[ "$OS_KIND" == "macos" ]]; then
-                info "Python $py_version $reason，尝试 brew install python@3.12..."
+                info "Python 版本不在 [3.11, 3.14) 范围内，尝试 brew install python@3.12..."
                 if [[ -x /opt/homebrew/bin/brew ]]; then
                     eval "$(/opt/homebrew/bin/brew shellenv)"
                 elif [[ -x /usr/local/bin/brew ]]; then
@@ -207,15 +204,15 @@ install_system_deps() {
                     done
                 fi
             fi
-            if ! ver_ge "$py_version" "3.11" || ver_ge "$py_major_minor" "3.14"; then
-                error "Python 版本 $py_version 不在 hermes-agent 支持范围（需要 >= 3.11 且 < 3.14）"
+            if ! ver_ge "${py_version:-0.0}" "3.11" || ver_ge "${py_major_minor:-0.0}" "3.14"; then
+                error "Python 版本 ${py_version:-未知} 不在 hermes-agent 支持范围（需要 >= 3.11 且 < 3.14）"
                 error "请先安装 Python 3.11/3.12/3.13，再重新运行本脚本"
                 error "  Ubuntu/Debian: apt install python3.11 或用 deadsnakes PPA"
                 error "  macOS: brew install python@3.12"
                 error "  通用: pyenv install 3.12 && pyenv global 3.12"
                 return 1
             fi
-            info "已切到 Python $py_version"
+            info "已切到 Python ${py_version:-未知}"
         fi
         info "升级 pip..."
         python3 -m pip install --upgrade pip 2>/dev/null || warn "pip 升级失败（不中断）"
