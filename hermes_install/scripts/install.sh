@@ -239,10 +239,10 @@ install_system_deps
 # ============================================================
 install_hermes() {
     info "处理 Hermes Agent..."
-    local installed="" online="" offline_wheel="" target=""
+    local installed_ver="" online="" offline_wheel="" target=""
 
-    installed=$(get_installed_hermes_version)
-    online=$(query_hermes_latest)
+    installed_ver=$(get_installed_hermes_version || true)
+    online=$(query_hermes_latest || true)
 
     # 离线包优先查找
     offline_wheel=$(find "$OFFLINE_DIR" -name "hermes_agent-*-py3-none-any.whl" 2>/dev/null | sort -rV | head -1)
@@ -259,19 +259,21 @@ install_hermes() {
         target=""
     fi
 
+    info "已装版本: ${installed_ver:-无}，目标版本: ${target:-无}"
+
     # 幂等判断
-    if [[ -n "$installed" ]] && [[ -n "$target" ]]; then
-        if [[ "$installed" == "$target" ]]; then
-            info "Hermes Agent 已是目标版本 $installed，跳过"
+    if [[ -n "$installed_ver" ]] && [[ -n "$target" ]]; then
+        if [[ "$installed_ver" == "$target" ]]; then
+            info "Hermes Agent 已是目标版本 $installed_ver，跳过"
             return 0
-        elif ver_ge "$installed" "$target"; then
-            info "Hermes Agent 已装 $installed >= 目标 $target，跳过（不降级）"
+        elif ver_ge "$installed_ver" "$target"; then
+            info "Hermes Agent 已装 $installed_ver >= 目标 $target，跳过（不降级）"
             return 0
         else
-            info "Hermes Agent 已装 $installed，升级到 $target"
+            info "Hermes Agent 已装 $installed_ver，升级到 $target"
         fi
-    elif [[ -n "$installed" ]]; then
-        info "Hermes Agent 已装 $installed，无目标版本可比，跳过"
+    elif [[ -n "$installed_ver" ]]; then
+        info "Hermes Agent 已装 $installed_ver，无目标版本可比，跳过"
         return 0
     fi
 
@@ -389,7 +391,7 @@ install_lark() {
     esac
 
     offline_lark="$OFFLINE_DIR/lark"
-    installed=$(get_installed_lark_version "$LARK_DIR/lark")
+    installed=$(get_installed_lark_version "$LARK_DIR/lark" || true)
 
     # 离线包优先
     if [[ -f "$offline_lark" ]]; then
