@@ -80,8 +80,22 @@ if [[ -d /opt/hermes-venv ]]; then
 fi
 $uninstall_ok || warn "hermes-agent 卸载失败或未安装"
 
-# 清理 hermes 残留：symlink、venv、记录文件
+# 清理 hermes 残留：symlink、venv、记录文件、各 python bin 里的 console script
+# 优先读 install.sh 记录的真实路径
+recorded_bin=""
+if [[ -f "$HERMES_HOME/.hermes-bin-path" ]]; then
+    recorded_bin=$(cat "$HERMES_HOME/.hermes-bin-path" 2>/dev/null || true)
+    if [[ -n "$recorded_bin" ]]; then
+        rm -f "$recorded_bin" 2>/dev/null || true
+        info "已删除 hermes 二进制: $recorded_bin"
+    fi
+fi
 rm -f /usr/local/bin/hermes 2>/dev/null || true
+rm -f /opt/homebrew/bin/hermes 2>/dev/null || true
+# brew python 各版本的 bin 里的 hermes
+for hb in /opt/homebrew/opt/python@3.*/bin/hermes /usr/local/opt/python@3.*/bin/hermes; do
+    rm -f "$hb" 2>/dev/null || true
+done
 rm -f "$HERMES_HOME/.hermes-bin-path" 2>/dev/null || true
 rm -rf /opt/hermes-venv 2>/dev/null || true
 
