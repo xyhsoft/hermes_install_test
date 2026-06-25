@@ -67,7 +67,7 @@ detect_platform() {
 # 用法: download_with_retry <url> <output> [max_retries]
 download_with_retry() {
     local url="$1" output="$2" max_retries="${3:-3}"
-    local i
+    local i=""
     for ((i=1; i<=max_retries; i++)); do
         info "下载中 ($i/$max_retries): $url"
         if wget -q --timeout=30 -O "$output" "$url" 2>/dev/null \
@@ -102,7 +102,7 @@ PIP_MIRRORS=(
 
 # 用法: pip_install_with_mirror "<pip 参数...>"
 pip_install_with_mirror() {
-    local mirror host
+    local mirror="" host=""
     # 用 install.sh 选定的 python 解释器（macOS 上可能是 brew python@3.13，避开 3.14）
     local py="${HERMES_PYTHON:-python3}"
     # PEP 668: 新版系统 Python(debian/ubuntu) 禁止系统级 pip 装，需 --break-system-packages
@@ -151,7 +151,7 @@ query_hermes_latest() {
 query_github_latest() {
     local repo="$1"; shift
     local keywords=("$@")
-    local json tag url asset_name asset_url
+    local json="" tag="" url="" asset_name="" asset_url=""
     if ! command -v curl &>/dev/null; then
         echo ""; echo ""; return 1
     fi
@@ -165,7 +165,7 @@ query_github_latest() {
     asset_url=""
     local all_urls
     all_urls=$(echo "$json" | grep '"browser_download_url"' | sed -E 's/.*"([^"]+)".*/\1/')
-    local kw u match
+    local kw="" u="" match=""
     while IFS= read -r u; do
         [[ -z "$u" ]] && continue
         match=1
@@ -245,7 +245,7 @@ can_install_ccswitch() {
     # macOS / Windows 由各自分支处理，此函数主要用于 Linux
     [[ "$OS_KIND" == "macos" ]] && return 0
 
-    local glibc_ver webkit
+    local glibc_ver="" webkit=""
     glibc_ver=$(ldd --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+$' | head -1)
     # webkit2gtk 检测（Tauri 应用依赖）
     webkit=$(pkg-config --modversion webkit2gtk-4.1 2>/dev/null \

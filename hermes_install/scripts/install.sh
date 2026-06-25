@@ -99,7 +99,7 @@ HERMES_PYTHON="python3"
 # ============================================================
 install_system_deps() {
     info "安装/检查系统依赖..."
-    local before_snapshot after_snapshot before_file
+    local before_snapshot="" after_snapshot="" before_file=""
 
     # 升级场景：清单已存在 → 只补缺失，不重生成
     if [[ -f "$DEPS_RECORD" ]]; then
@@ -239,7 +239,7 @@ install_system_deps
 # ============================================================
 install_hermes() {
     info "处理 Hermes Agent..."
-    local installed online offline_wheel target
+    local installed="" online="" offline_wheel="" target=""
 
     installed=$(get_installed_hermes_version)
     online=$(query_hermes_latest)
@@ -378,7 +378,7 @@ install_lark() {
     info "处理飞书 CLI..."
     mkdir -p "$LARK_DIR"
 
-    local lark_arch offline_lark installed
+    local lark_arch="" offline_lark="" installed=""
     case "$ARCH" in
         x86_64)  lark_arch="linux-amd64" ;;
         aarch64) lark_arch="linux-arm64" ;;
@@ -407,7 +407,7 @@ install_lark() {
 
     # 在线：GitHub API 查 assets 匹配
     info "查询飞书 CLI 最新版..."
-    local tag asset_url
+    local tag="" asset_url=""
     { read -r tag; read -r asset_url; } < <(query_github_latest "larksuite/cli" "$lark_arch")
 
     if [[ -n "$asset_url" ]]; then
@@ -522,8 +522,8 @@ install_ccswitch() {
 
     # 在线：GitHub API 查 assets
     info "查询 CC-Switch 最新版..."
-    local tag asset_url
-    local -a keywords
+    local tag="" asset_url=""
+    local -a keywords=()
     if [[ "$OS_KIND" == "macos" ]]; then
         keywords=("macOS.dmg")
     else
