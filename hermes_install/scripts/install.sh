@@ -264,16 +264,16 @@ install_hermes() {
     # 幂等判断
     if [[ -n "$installed_ver" ]] && [[ -n "$target" ]]; then
         if [[ "$installed_ver" == "$target" ]]; then
-            info "Hermes Agent 已是目标版本 $installed_ver，跳过"
+            info "Hermes Agent 已是目标版本 ${installed_ver}, 跳过"
             return 0
         elif ver_ge "$installed_ver" "$target"; then
-            info "Hermes Agent 已装 $installed_ver >= 目标 $target，跳过（不降级）"
+            info "Hermes Agent 已装 ${installed_ver} >= 目标 ${target}, 跳过（不降级）"
             return 0
         else
-            info "Hermes Agent 已装 $installed_ver，升级到 $target"
+            info "Hermes Agent 已装 ${installed_ver}, 升级到 ${target}"
         fi
     elif [[ -n "$installed_ver" ]]; then
-        info "Hermes Agent 已装 $installed_ver，无目标版本可比，跳过"
+        info "Hermes Agent 已装 ${installed_ver}, 无目标版本可比，跳过"
         return 0
     fi
 
