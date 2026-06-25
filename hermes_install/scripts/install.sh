@@ -91,6 +91,9 @@ mkdir -p "$INSTALL_DIR" "$HERMES_HOME"
 OFFLINE_DIR="$BASE_DIR/offline-packages/$ARCH_DIR"
 LARK_DIR="$INSTALL_DIR/lark"
 
+# HERMES_PYTHON: 实际用来装 hermes 的 python 解释器（默认 python3，macOS 上可能切到 brew python@3.12/3.13）
+HERMES_PYTHON="python3"
+
 # ============================================================
 # 依赖安装 + 首次新装清单记录
 # ============================================================
@@ -144,9 +147,7 @@ install_system_deps() {
             if ! command -v python3 &>/dev/null || [[ "$(command -v python3)" == "/usr/bin/python3" ]]; then
                 brew install python3 2>/dev/null || true
             fi
-            # 记录 brew python 的 bin 路径，供后续 pip 装的 hermes 定位
-            BREW_PYTHON_BIN=$(python3 -c "import sys; print(sys.prefix)" 2>/dev/null)/bin
-            [[ -d "$BREW_PYTHON_BIN" ]] && export PATH="$BREW_PYTHON_BIN:$PATH"
+            # BREW_PYTHON_BIN 在下方版本检查段确定（切到具体版本后设）
             ;;
         none)
             warn "无法识别包管理器，跳过系统依赖安装。请确保 python3/pip/curl/wget 已就绪"
@@ -179,7 +180,7 @@ install_system_deps() {
                     eval "$(/usr/local/bin/brew shellenv)"
                 fi
                 if command -v brew &>/dev/null; then
-                    brew install python@3.12 2>/dev/null || brew install python 2>/dev/null || true
+                    brew install python@3.12 2>/dev/null || brew install python@3.13 2>/dev/null || brew install python 2>/dev/null || true
                     # 找 brew python 3.12/3.13（避开 3.14+）
                     for candidate in \
                         /opt/homebrew/opt/python@3.12/bin/python3.12 \
@@ -193,9 +194,13 @@ install_system_deps() {
                         if [[ -x "$candidate" ]]; then
                             local candidate_ver
                             candidate_ver=$("$candidate" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null)
-                            if ver_ge "$candidate_ver" "3.11" && ! ver_ge "$candidate_ver" "3.14"; then
+                            if ver_ge "${candidate_ver:-0.0}" "3.11" && ! ver_ge "${candidate_ver:-0.0}" "3.14"; then
                                 info "切到 brew python: $candidate (版本 $candidate_ver)"
+                                # 关键：用具体版本路径，避免 python3 仍指向 3.14
+                                HERMES_PYTHON="$candidate"
                                 export PATH="$(dirname "$candidate"):$PATH"
+                                # 记录 bin 目录，供 profile.d 写 PATH 用
+                                BREW_PYTHON_BIN="$(dirname "$candidate")"
                                 py_version=$("$candidate" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")' 2>/dev/null)
                                 py_major_minor="$candidate_ver"
                                 break
@@ -215,7 +220,7 @@ install_system_deps() {
             info "已切到 Python ${py_version:-未知}"
         fi
         info "升级 pip..."
-        python3 -m pip install --upgrade pip 2>/dev/null || warn "pip 升级失败（不中断）"
+        "$HERMES_PYTHON" -m pip install --upgrade pip 2>/dev/null || warn "pip 升级失败（不中断）"
     else
         error "未检测到 python3"
         return 1
@@ -275,7 +280,7 @@ install_hermes() {
     if [[ -n "$offline_wheel" ]]; then
         info "使用离线包: $(basename "$offline_wheel")"
         # 离线 wheel 的 transitive deps 仍需联网；无网时会失败
-        if python3 -m pip install "$offline_wheel" 2>/dev/null; then
+        if "$HERMES_PYTHON" -m pip install "$offline_wheel" 2>/dev/null; then
             hermes_install_ok=true
         else
             warn "离线包直接 pip 装失败，尝试 venv 兜底..."
@@ -295,7 +300,7 @@ install_hermes() {
     if [[ "$hermes_install_ok" != "true" ]]; then
         local venv_dir="/opt/hermes-venv"
         info "尝试 venv 兜底安装到 $venv_dir ..."
-        if python3 -m venv "$venv_dir" 2>/dev/null; then
+        if "$HERMES_PYTHON" -m venv "$venv_dir" 2>/dev/null; then
             if "$venv_dir/bin/pip" install --quiet "hermes-agent${target:+==$target}" 2>/dev/null; then
                 info "venv 兜底安装成功"
                 hermes_install_ok=true
@@ -321,12 +326,12 @@ if command -v hermes &>/dev/null; then
     HERMES_BIN_PATH=$(command -v hermes)
 else
     # 从 pip show 拿 hermes-agent 安装位置，推导 bin 目录
-    PIP_LOCATION=$(python3 -m pip show hermes-agent 2>/dev/null | grep -E '^Location:' | awk '{print $2}')
+    PIP_LOCATION=$("$HERMES_PYTHON" -m pip show hermes-agent 2>/dev/null | grep -E '^Location:' | awk '{print $2}')
     if [[ -n "$PIP_LOCATION" ]]; then
         info "hermes-agent pip Location: $PIP_LOCATION"
         # bin 目录常见位置：sys.prefix/bin、user-base/bin、或 Location 的父级/bin
         for candidate in \
-            "$(python3 -c 'import sys; print(sys.prefix)' 2>/dev/null)/bin/hermes" \
+            "$("$HERMES_PYTHON" -c 'import sys; print(sys.prefix)' 2>/dev/null)/bin/hermes" \
             "$(python3 -m site --user-base 2>/dev/null)/bin/hermes" \
             "$HOME/.local/bin/hermes" \
             "/usr/local/bin/hermes" \
@@ -361,8 +366,9 @@ else
     # 打印诊断
     info "python3 位置: $(which python3 2>/dev/null || echo '未知')"
     info "python3 版本: $(python3 --version 2>/dev/null || echo '未知')"
+    info "HERMES_PYTHON: $HERMES_PYTHON ($("$HERMES_PYTHON" --version 2>/dev/null || echo '未知'))"
     info "pip show hermes-agent:"
-    python3 -m pip show hermes-agent 2>/dev/null || info "(pip show 无输出)"
+    "$HERMES_PYTHON" -m pip show hermes-agent 2>/dev/null || info "(pip show 无输出)"
 fi
 
 # ============================================================
@@ -653,6 +659,7 @@ if [[ "$OS_KIND" == "macos" ]]; then
     # 含 brew python bin（hermes 二进制装在那），让非 sudo 终端也能找到 hermes
     extra_path=""
     [[ -n "${BREW_PYTHON_BIN:-}" ]] && [[ -d "$BREW_PYTHON_BIN" ]] && extra_path="$BREW_PYTHON_BIN:"
+    mkdir -p /etc/profile.d 2>/dev/null || true
     cat > /etc/profile.d/hermes.sh << EOF
 export PATH="$extra_path$INSTALL_DIR:$LARK_DIR:\$PATH"
 export HERMES_HOME="$HERMES_HOME"

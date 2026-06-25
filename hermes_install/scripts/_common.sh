@@ -103,16 +103,18 @@ PIP_MIRRORS=(
 # 用法: pip_install_with_mirror "<pip 参数...>"
 pip_install_with_mirror() {
     local mirror host
+    # 用 install.sh 选定的 python 解释器（macOS 上可能是 brew python@3.13，避开 3.14）
+    local py="${HERMES_PYTHON:-python3}"
     # PEP 668: 新版系统 Python(debian/ubuntu) 禁止系统级 pip 装，需 --break-system-packages
     # 老 pip 不认此参数会报错，所以先探测
     local break_flag=""
-    if python3 -m pip install --help 2>/dev/null | grep -q -- '--break-system-packages'; then
+    if "$py" -m pip install --help 2>/dev/null | grep -q -- '--break-system-packages'; then
         break_flag="--break-system-packages"
     fi
     for mirror in "${PIP_MIRRORS[@]}"; do
         host=$(extract_host "$mirror")
         info "尝试镜像源: $mirror"
-        if python3 -m pip install "$@" $break_flag -i "$mirror" --trusted-host "$host"; then
+        if "$py" -m pip install "$@" $break_flag -i "$mirror" --trusted-host "$host"; then
             return 0
         fi
         warn "源 $mirror 失败，尝试下一个..."
@@ -122,7 +124,7 @@ pip_install_with_mirror() {
     warn "常规安装失败，尝试 --ignore-installed 兜底..."
     for mirror in "${PIP_MIRRORS[@]}"; do
         host=$(extract_host "$mirror")
-        if python3 -m pip install "$@" $break_flag --ignore-installed -i "$mirror" --trusted-host "$host"; then
+        if "$py" -m pip install "$@" $break_flag --ignore-installed -i "$mirror" --trusted-host "$host"; then
             return 0
         fi
     done
