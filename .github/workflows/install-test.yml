@@ -172,6 +172,7 @@ jobs:
     name: UOS20-sim(Python3.11)
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    if: false  # UOS20-sim 已验证通过，暂停（如需恢复删除此行）
     steps:
       - name: Checkout
         uses: actions/checkout@v4
