@@ -31,10 +31,15 @@ done
 
 INSTALL_DIR="${INSTALL_DIR:-/usr/local/hermes}"
 HERMES_HOME="${HERMES_HOME:-/var/lib/hermes}"
-DEPS_RECORD="${HERMES_HOME}/installed-deps.txt"
 
 ensure_root "$@"
 detect_platform
+
+# macOS 默认数据目录与 Linux 不同（与 install.sh 保持一致）
+if [[ "$OS_KIND" == "macos" ]] && [[ "$HERMES_HOME" == "/var/lib/hermes" ]]; then
+    HERMES_HOME="/Library/Application Support/Hermes"
+fi
+DEPS_RECORD="${HERMES_HOME}/installed-deps.txt"
 
 echo "========================================"
 echo "  Hermes Agent 卸载 ($OS_KIND $ARCH)"
@@ -47,7 +52,38 @@ fi
 
 # 卸载 Hermes Agent
 info "卸载 Hermes Agent..."
-pip3 uninstall -y hermes-agent 2>/dev/null || warn "hermes-agent 卸载失败或未安装"
+# hermes 可能装在多个 python 环境里（macOS 上 install.sh 用 brew python@3.13 装的），
+# 用所有可能的 python 解释器都试一遍卸载
+uninstall_ok=false
+for py in python3 python3.13 python3.12 python3.11 \
+          /opt/homebrew/opt/python@3.13/bin/python3.13 \
+          /opt/homebrew/opt/python@3.12/bin/python3.12 \
+          /opt/homebrew/bin/python3.13 \
+          /opt/homebrew/bin/python3.12 \
+          /usr/local/opt/python@3.13/bin/python3.13 \
+          /usr/local/opt/python@3.12/bin/python3.12 \
+          /usr/local/bin/python3 \
+          /usr/bin/python3; do
+    if command -v "$py" &>/dev/null || [[ -x "$py" ]]; then
+        if "$py" -m pip uninstall -y hermes-agent &>/dev/null; then
+            info "通过 $py 卸载 hermes-agent 成功"
+            uninstall_ok=true
+        fi
+    fi
+done
+# 也清理 venv 兜底装的 hermes
+if [[ -d /opt/hermes-venv ]]; then
+    if /opt/hermes-venv/bin/pip uninstall -y hermes-agent &>/dev/null; then
+        info "通过 /opt/hermes-venv 卸载 hermes-agent 成功"
+        uninstall_ok=true
+    fi
+fi
+$uninstall_ok || warn "hermes-agent 卸载失败或未安装"
+
+# 清理 hermes 残留：symlink、venv、记录文件
+rm -f /usr/local/bin/hermes 2>/dev/null || true
+rm -f "$HERMES_HOME/.hermes-bin-path" 2>/dev/null || true
+rm -rf /opt/hermes-venv 2>/dev/null || true
 
 # 卸载飞书 CLI
 info "卸载飞书 CLI..."
