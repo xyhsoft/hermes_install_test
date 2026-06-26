@@ -16,10 +16,10 @@
 |------|------|---------|
 | Windows 10/11 | x64 | `install-windows.ps1` |
 | Ubuntu / UOS / 银河麒麟 | x64 / arm64 | `install.sh` |
-| CentOS 7/8 | x64 / arm64 | `install.sh` |
 | macOS 11+ | Intel / Apple Silicon | `install.sh` |
 
 > `install.sh` 内部按 `uname -m` + 包管理器(apt/yum/dnf/brew)自动适配架构与发行版,一个脚本通吃 Linux + macOS。
+> CentOS 7/8 已 EOL 且官方源失效,不再支持。
 
 ## ⚠️ 执行前准备(必读)
 
@@ -222,3 +222,5 @@ CC-Switch 是 Tauri(WebKit2GTK)桌面应用,Linux 上对系统库要求较新。
 ## 版本查询说明
 
 Hermes Agent / CC-Switch / 飞书 CLI 的版本号均**实时查询官网/GitHub 最新稳定版**,不硬编码。CC-Switch 和飞书 CLI 通过 GitHub Releases API 读取 `assets[]` 按平台关键词匹配实际下载地址,适应任意命名风格。
+
+> CentOS 7/8 已 EOL 且官方源失效,不再支持。

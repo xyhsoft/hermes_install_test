@@ -28,8 +28,10 @@ hermes-install-test/
 |-----|--------|--------|
 | Ubuntu-x64 | ubuntu-latest | apt 分支、install.sh 主流程、幂等、卸载 |
 | macOS | macos-latest | brew 分支、macOS 路径、LaunchAgent |
-| CentOS-7-Docker | ubuntu-latest + centos:7 容器 | yum 分支、架构检测 |
+| UOS20-sim | python:3.11-slim 容器 | apt 分支、CC-Switch 预检跳过 |
 | Windows-x64 | windows-latest | install-windows.ps1、MSI 安装/回滚、注册表 |
+
+> CentOS 7/8 已 EOL 且官方源失效,不再支持。
 
 测试统一用无人值守参数：
 - `--skip-provider-config` / `-SKIP_PROVIDER_CONFIG`（跳过 AI 后端配置，不输 API Key）
