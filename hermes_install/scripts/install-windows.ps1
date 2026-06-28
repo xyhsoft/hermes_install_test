@@ -1,4 +1,4 @@
-# ============================================================
+﻿# ============================================================
 # Hermes Agent + 飞书CLI + CC-Switch Windows x64 幂等安装器
 #
 # 特性：
@@ -238,9 +238,7 @@ if ($installedHermes -and $targetHermes) {
     } else {
         Write-Info "Hermes Agent 已装 $installedHermes，升级到 $targetHermes"
     }
-}
-
-if ($installedHermes -and -not $targetHermes) {
+} elseif ($installedHermes) {
     Write-Info "Hermes Agent 已装 $installedHermes，无目标版本可比，跳过"
     $shouldInstall = $false
 }
@@ -436,8 +434,7 @@ if (-not $SKIP_PROVIDER_CONFIG) {
             if ($cfgApiKey) { [System.IO.File]::WriteAllText("$defaultHome\.env",$envContent,[System.Text.UTF8Encoding]::new($false)) }
             Write-Info "配置已同步写入 $defaultHome"
         }
-        $apiKeyDisplay = if ($cfgApiKey) { '***' } else { '(未配置)' }
-        Write-Info "配置验证: provider=$cfgProvider model=$cfgModel api_key=$apiKeyDisplay"
+        Write-Info "配置验证: provider=$cfgProvider model=$cfgModel api_key=$(if($cfgApiKey){'***'}else{'(未配置)'})"
 
         if ($cfgApiKey -and -not $SKIP_CONNECTIVITY_TEST) {
             Write-Info "连通性测试（30s 超时）..."
