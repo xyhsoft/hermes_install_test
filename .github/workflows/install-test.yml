@@ -43,17 +43,17 @@ jobs:
             shell-name: PS5.1
     env:
       HERMES_CI: "1"
+    defaults:
+      run:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: 打印 PowerShell 版本
         run: $PSVersionTable.PSVersion
-        shell: ${{ matrix.shell }}
 
       - name: 放开执行策略
         run: Set-ExecutionPolicy Bypass -Scope Process -Force
-        shell: ${{ matrix.shell }}
 
       - name: 安装（第一次）
         run: |
@@ -62,7 +62,6 @@ jobs:
             -SKIP_PROVIDER_CONFIG -SKIP_AUTOSTART -SKIP_CONNECTIVITY_TEST -SKIP_BROWSER_ACT -CI `
             2>&1 | Tee-Object -FilePath install-1.log
           Write-Host "install-1 完成"
-        shell: ${{ matrix.shell }}
 
       - name: 验证安装产物
         run: |
@@ -92,7 +91,6 @@ jobs:
           Write-Host "=== CC-Switch 状态 ==="
           $cc = Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*","HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -like "*CC-Switch*" }
           if ($cc) { Write-Host "✅ CC-Switch 已安装" } else { Write-Host "ℹ️ CC-Switch 未安装（下载失败或回滚，符合预期之一）" }
-        shell: ${{ matrix.shell }}
 
       - name: 幂等性测试（第二次安装应跳过）
         run: |
@@ -106,7 +104,6 @@ jobs:
           } else {
             Write-Host "⚠️ 幂等性未检测到跳过字样（请人工核对 install-2.log）"
           }
-        shell: ${{ matrix.shell }}
 
       - name: 卸载测试
         if: github.event.inputs.run_uninstall != 'false' && github.event_name != 'pull_request'
@@ -121,7 +118,6 @@ jobs:
             try { hermes --version 2>$null; Write-Host "❌ hermes 仍可用，卸载失败"; exit 1 } catch {}
           }
           Write-Host "✅ hermes 已卸载"
-        shell: ${{ matrix.shell }}
 
       - name: 上传日志
         if: always()
