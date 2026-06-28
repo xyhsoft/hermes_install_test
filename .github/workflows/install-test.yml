@@ -45,6 +45,7 @@ jobs:
       HERMES_CI: "1"
     defaults:
       run:
+        shell: ${{ matrix.shell }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
