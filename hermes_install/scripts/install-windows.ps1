@@ -231,15 +231,18 @@ $shouldInstall = $true
 if ($installedHermes -and $targetHermes) {
     if ($installedHermes -eq $targetHermes) {
         Write-Info "Hermes Agent 已是目标版本 $installedHermes，跳过"
+        Write-Info "[IDEMPOTENT_SKIP] hermes already at target version"
         $shouldInstall = $false
     } elseif (Ver-GE $installedHermes $targetHermes) {
         Write-Info "Hermes Agent 已装 $installedHermes >= 目标 $targetHermes，跳过（不降级）"
+        Write-Info "[IDEMPOTENT_SKIP] hermes installed >= target, skip downgrade"
         $shouldInstall = $false
     } else {
         Write-Info "Hermes Agent 已装 $installedHermes，升级到 $targetHermes"
     }
 } elseif ($installedHermes) {
     Write-Info "Hermes Agent 已装 $installedHermes，无目标版本可比，跳过"
+    Write-Info "[IDEMPOTENT_SKIP] hermes installed, no target version to compare"
     $shouldInstall = $false
 }
 

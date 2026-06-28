@@ -2,6 +2,8 @@ name: 安装测试
 
 # Hermes 安装包 Windows 安装测试（PowerShell 5.1 + 7 双版本）
 # 跑 install → 验证 → 幂等二跑 → 卸载
+# 注意：run: 内联 PowerShell 代码必须用英文，GitHub 写临时 ps1 不加 BOM，
+# PS5.1 用 GBK 读 UTF-8 中文会乱码导致解析失败。
 
 on:
   push:
@@ -26,9 +28,6 @@ env:
   HERMES_CI: "1"
 
 jobs:
-  # ============================================================
-  # Windows 安装测试（PowerShell 5.1 + PowerShell 7 双版本）
-  # ============================================================
   test-windows:
     name: Windows-x64 (${{ matrix.shell-name }})
     runs-on: windows-latest
@@ -50,21 +49,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: 打印 PowerShell 版本
+      - name: Print PowerShell version
         run: $PSVersionTable.PSVersion
 
-      - name: 放开执行策略
+      - name: Set execution policy
         run: Set-ExecutionPolicy Bypass -Scope Process -Force
 
-      - name: 安装（第一次）
+      - name: Install (1st)
         run: |
           $ErrorActionPreference = 'Continue'
           & .\hermes_install\scripts\install-windows.ps1 `
             -SKIP_PROVIDER_CONFIG -SKIP_AUTOSTART -SKIP_CONNECTIVITY_TEST -SKIP_BROWSER_ACT -CI `
             2>&1 | Tee-Object -FilePath install-1.log
-          Write-Host "install-1 完成"
+          Write-Host "install-1 done"
 
-      - name: 验证安装产物
+      - name: Verify install
         run: |
           $ErrorActionPreference = 'Continue'
           $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
@@ -77,50 +76,50 @@ jobs:
             $hermesCmd = Get-Command hermes -ErrorAction SilentlyContinue
           }
           if ($hermesCmd) {
-            try { hermes --version; Write-Host "✅ hermes 已装上" }
-            catch { Write-Host "❌ hermes --version 失败"; Get-Content install-1.log -Tail 50; exit 1 }
+            try { hermes --version; Write-Host "[OK] hermes installed" }
+            catch { Write-Host "[FAIL] hermes --version failed"; Get-Content install-1.log -Tail 50; exit 1 }
           } else {
-            Write-Host "❌ hermes 未装上"
+            Write-Host "[FAIL] hermes not installed"
             Write-Host "--- pip show ---"
             pip show hermes-agent 2>&1
-            Write-Host "--- install-1.log 末尾 ---"
+            Write-Host "--- install-1.log tail ---"
             Get-Content install-1.log -Tail 50 -ErrorAction SilentlyContinue
             exit 1
           }
-          Write-Host "=== 依赖清单 ==="
-          if (Test-Path "$env:APPDATA\Hermes\installed-deps.txt") { Write-Host "✅ 依赖清单:"; Get-Content "$env:APPDATA\Hermes\installed-deps.txt" } else { Write-Host "⚠️ 依赖清单未生成" }
-          Write-Host "=== CC-Switch 状态 ==="
+          Write-Host "=== deps record ==="
+          if (Test-Path "$env:APPDATA\Hermes\installed-deps.txt") { Write-Host "[OK] deps:"; Get-Content "$env:APPDATA\Hermes\installed-deps.txt" } else { Write-Host "[WARN] no deps record" }
+          Write-Host "=== CC-Switch status ==="
           $cc = Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*","HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -like "*CC-Switch*" }
-          if ($cc) { Write-Host "✅ CC-Switch 已安装" } else { Write-Host "ℹ️ CC-Switch 未安装（下载失败或回滚，符合预期之一）" }
+          if ($cc) { Write-Host "[OK] CC-Switch installed" } else { Write-Host "[INFO] CC-Switch not installed (expected if download failed)" }
 
-      - name: 幂等性测试（第二次安装应跳过）
+      - name: Idempotency test (2nd install should skip)
         run: |
           $ErrorActionPreference = 'Continue'
           $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
           & .\hermes_install\scripts\install-windows.ps1 `
             -SKIP_PROVIDER_CONFIG -SKIP_AUTOSTART -SKIP_CONNECTIVITY_TEST -SKIP_BROWSER_ACT -CI `
             2>&1 | Tee-Object -FilePath install-2.log
-          if (Select-String -Path install-2.log -Pattern "跳过|已是|已装" -Quiet) {
-            Write-Host "✅ 幂等性生效"
+          if (Select-String -Path install-2.log -Pattern "skip|already|installed" -Quiet) {
+            Write-Host "[OK] idempotent"
           } else {
-            Write-Host "⚠️ 幂等性未检测到跳过字样（请人工核对 install-2.log）"
+            Write-Host "[WARN] no skip keyword found in install-2.log"
           }
 
-      - name: 卸载测试
+      - name: Uninstall test
         if: github.event.inputs.run_uninstall != 'false' && github.event_name != 'pull_request'
         run: |
           $ErrorActionPreference = 'Continue'
-          Write-Host "=== 卸载 ==="
+          Write-Host "=== uninstall ==="
           & .\hermes_install\scripts\uninstall-windows.ps1 -REMOVE_CONFIG -REMOVE_DEPS -CI 2>&1 | Tee-Object -FilePath uninstall.log
-          Write-Host "=== 验证卸载结果 ==="
+          Write-Host "=== verify uninstall ==="
           $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
           $hermesCmd = Get-Command hermes -ErrorAction SilentlyContinue
           if ($hermesCmd) {
-            try { hermes --version 2>$null; Write-Host "❌ hermes 仍可用，卸载失败"; exit 1 } catch {}
+            try { hermes --version 2>$null; Write-Host "[FAIL] hermes still available, uninstall failed"; exit 1 } catch {}
           }
-          Write-Host "✅ hermes 已卸载"
+          Write-Host "[OK] hermes uninstalled"
 
-      - name: 上传日志
+      - name: Upload logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
