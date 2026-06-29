@@ -23,12 +23,21 @@ param(
 )
 
 $DEPS_RECORD = Join-Path $HERMES_HOME "installed-deps.txt"
+$COMPONENTS_RECORD = Join-Path $HERMES_HOME "installed-components.txt"
 $CI_MODE = $CI -or ($env:HERMES_CI -eq "1")
 
 # 日志随安装包走：脚本所在 scripts 的父目录（安装包根）下 logs/
 $LOG_DIR = Join-Path (Split-Path $PSScriptRoot -Parent) "logs"
 New-Item -ItemType Directory -Force -Path $LOG_DIR | Out-Null
 $LOG_FILE = Join-Path $LOG_DIR "uninstall.log"
+
+# 辅助函数：判断组件是否由 install 脚本新装（记录在 installed-components.txt）
+function Test-InstalledByScript {
+    param([string]$ComponentName)
+    if (-not (Test-Path $COMPONENTS_RECORD)) { return $false }
+    $list = Get-Content $COMPONENTS_RECORD -ErrorAction SilentlyContinue
+    return ($list -contains $ComponentName)
+}
 
 function Write-ULog {
     param([string]$Message)
@@ -58,40 +67,54 @@ if (-not $CI_MODE) {
     Write-Host "CI 模式，自动确认卸载"
 }
 
-# 卸载 Hermes Agent
-Write-ULog "卸载 Hermes Agent..."
-$uninstOk = $false
-try {
-    $out = pip uninstall -y hermes-agent 2>&1
-    if ($out -match "Successfully uninstalled") { $uninstOk = $true; Write-ULog "[OK] hermes-agent 卸载成功" }
-    else { Write-ULog "[INFO] hermes-agent 可能未安装或已卸载" }
-} catch { Write-ULog "[WARN] pip uninstall 异常: $_" }
-
-# 卸载飞书 CLI
-Write-ULog "卸载飞书 CLI..."
-if (Test-Path "$INSTALL_DIR\lark") {
-    Remove-Item -Recurse -Force "$INSTALL_DIR\lark" -ErrorAction SilentlyContinue
-    if (Test-Path "$INSTALL_DIR\lark") { Write-ULog "[WARN] lark 目录未删干净" }
-    else { Write-ULog "[OK] lark 目录已删除" }
-} else { Write-ULog "[INFO] lark 目录不存在，跳过" }
-
-# 卸载 CC-Switch
-Write-ULog "卸载 CC-Switch..."
-$ccApp = Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*","HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -like "*CC-Switch*" }
-if ($ccApp) {
-    try { Start-Process msiexec -ArgumentList "/x $($ccApp.PSChildName) /qn" -Wait; Write-ULog "[OK] CC-Switch 卸载已执行" } catch { Write-ULog "[WARN] CC-Switch 卸载失败: $_" }
-} else {
-    Write-ULog "[INFO] 注册表无 CC-Switch 记录，尝试 Win32_Product"
+# 卸载 Hermes Agent（仅卸 install 脚本新装的，用户自己装的不动）
+if (Test-InstalledByScript "hermes-agent") {
+    Write-ULog "卸载 Hermes Agent..."
+    $uninstOk = $false
     try {
-        $ccProd = (Get-WmiObject -Class Win32_Product | Where-Object { $_.Name -like "*CC-Switch*" })
-        if ($ccProd) { Start-Process msiexec -ArgumentList "/x $($ccProd.IdentifyingNumber) /qn" -Wait; Write-ULog "[OK] CC-Switch 卸载已执行(Win32_Product)" }
-        else { Write-ULog "[INFO] 未找到 CC-Switch，可能未安装" }
-    } catch { Write-ULog "[WARN] Win32_Product 查询失败: $_" }
+        $out = pip uninstall -y hermes-agent 2>&1
+        if ($out -match "Successfully uninstalled") { $uninstOk = $true; Write-ULog "[OK] hermes-agent 卸载成功" }
+        else { Write-ULog "[INFO] hermes-agent 可能未安装或已卸载" }
+    } catch { Write-ULog "[WARN] pip uninstall 异常: $_" }
+} else {
+    Write-ULog "[SKIP] hermes-agent 非本脚本安装，跳过卸载"
 }
 
-# 清理自启动快捷方式
-$commonStartup = [Environment]::GetFolderPath("CommonStartup")
-Remove-Item -Force (Join-Path $commonStartup "CC-Switch.lnk") -ErrorAction SilentlyContinue
+# 卸载飞书 CLI（仅卸 install 脚本新装的）
+if (Test-InstalledByScript "lark") {
+    Write-ULog "卸载飞书 CLI..."
+    if (Test-Path "$INSTALL_DIR\lark") {
+        Remove-Item -Recurse -Force "$INSTALL_DIR\lark" -ErrorAction SilentlyContinue
+        if (Test-Path "$INSTALL_DIR\lark") { Write-ULog "[WARN] lark 目录未删干净" }
+        else { Write-ULog "[OK] lark 目录已删除" }
+    } else { Write-ULog "[INFO] lark 目录不存在，跳过" }
+} else {
+    Write-ULog "[SKIP] lark 非本脚本安装，跳过卸载"
+}
+
+# 卸载 CC-Switch（仅卸 install 脚本新装的，用户自己装的不动）
+if (Test-InstalledByScript "cc-switch") {
+    Write-ULog "卸载 CC-Switch..."
+    $ccApp = Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*","HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -like "*CC-Switch*" }
+    if ($ccApp) {
+        try { Start-Process msiexec -ArgumentList "/x $($ccApp.PSChildName) /qn" -Wait; Write-ULog "[OK] CC-Switch 卸载已执行" } catch { Write-ULog "[WARN] CC-Switch 卸载失败: $_" }
+    } else {
+        Write-ULog "[INFO] 注册表无 CC-Switch 记录，尝试 Win32_Product"
+        try {
+            $ccProd = (Get-WmiObject -Class Win32_Product | Where-Object { $_.Name -like "*CC-Switch*" })
+            if ($ccProd) { Start-Process msiexec -ArgumentList "/x $($ccProd.IdentifyingNumber) /qn" -Wait; Write-ULog "[OK] CC-Switch 卸载已执行(Win32_Product)" }
+            else { Write-ULog "[INFO] 未找到 CC-Switch，可能未安装" }
+        } catch { Write-ULog "[WARN] Win32_Product 查询失败: $_" }
+    }
+} else {
+    Write-ULog "[SKIP] CC-Switch 非本脚本安装，跳过卸载"
+}
+
+# 清理自启动快捷方式（仅当 CC-Switch 是本脚本装的才清）
+if (Test-InstalledByScript "cc-switch") {
+    $commonStartup = [Environment]::GetFolderPath("CommonStartup")
+    Remove-Item -Force (Join-Path $commonStartup "CC-Switch.lnk") -ErrorAction SilentlyContinue
+}
 
 # 清理环境变量
 Write-ULog "清理环境变量..."
@@ -162,10 +185,14 @@ if (-not $hermesCmd) { Write-ULog "[PASS] hermes 已卸载"; $uninstPassed++ }
 if (-not (Test-Path $INSTALL_DIR)) { Write-ULog "[PASS] 安装目录已删除"; $uninstPassed++ }
     else { Write-ULog "[WARN] 安装目录仍存在: $INSTALL_DIR"; $uninstFailed++ }
 
-# CC-Switch 应卸载
-$ccCheck = Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*","HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -like "*CC-Switch*" }
-if (-not $ccCheck) { Write-ULog "[PASS] CC-Switch 已卸载"; $uninstPassed++ }
-    else { Write-ULog "[WARN] CC-Switch 注册表记录仍存在"; $uninstFailed++ }
+# CC-Switch：仅本脚本装的才验证卸载；用户自装的不验证（跳过卸载了）
+if (Test-InstalledByScript "cc-switch") {
+    $ccCheck = Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*","HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -like "*CC-Switch*" }
+    if (-not $ccCheck) { Write-ULog "[PASS] CC-Switch 已卸载"; $uninstPassed++ }
+        else { Write-ULog "[WARN] CC-Switch 注册表记录仍存在"; $uninstFailed++ }
+} else {
+    Write-ULog "[PASS] CC-Switch 非本脚本安装，未卸载（符合预期）"; $uninstPassed++
+}
 
 if ($uninstFailed -eq 0) {
     Write-ULog "✅ 卸载验证全部通过 ($uninstPassed 项)"
@@ -174,6 +201,8 @@ if ($uninstFailed -eq 0) {
 }
 
 Write-ULog "卸载完成"
+# 清理组件记录文件
+Remove-Item $COMPONENTS_RECORD -Force -ErrorAction SilentlyContinue
 Write-Host "========================================" -ForegroundColor Green
 Write-Host "  卸载完成!" -ForegroundColor Green
 Write-Host "  日志: $LOG_FILE" -ForegroundColor Gray

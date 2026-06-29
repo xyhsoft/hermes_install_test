@@ -94,6 +94,16 @@ mkdir -p "$INSTALL_DIR" "$HERMES_HOME"
 OFFLINE_DIR="$BASE_DIR/offline-packages/$ARCH_DIR"
 LARK_DIR="$INSTALL_DIR/lark"
 
+# 组件安装记录：只记录"原本不存在 + 安装成功"的组件，供卸载脚本判断
+COMPONENTS_RECORD="${HERMES_HOME}/installed-components.txt"
+add_installed_component() {
+    local name="$1"
+    mkdir -p "$HERMES_HOME" 2>/dev/null || true
+    touch "$COMPONENTS_RECORD" 2>/dev/null || true
+    grep -qxF "$name" "$COMPONENTS_RECORD" 2>/dev/null || echo "$name" >> "$COMPONENTS_RECORD"
+    info "记录新装组件: $name"
+}
+
 # HERMES_PYTHON: 实际用来装 hermes 的 python 解释器（默认 python3，macOS 上可能切到 brew python@3.12/3.13）
 HERMES_PYTHON="python3"
 
@@ -322,6 +332,10 @@ install_hermes() {
     fi
 }
 
+# 记录 hermes 安装前是否已存在（用于判断是否"新装"）
+HERMES_WAS_INSTALLED=false
+[[ -n "$(get_installed_hermes_version 2>/dev/null)" ]] && HERMES_WAS_INSTALLED=true
+
 install_hermes || warn "Hermes Agent 安装未完成"
 
 # 记录 hermes 二进制实际路径，供 CI 验证 step 读取（macOS sudo 下 PATH 复杂，避免找不到）
@@ -350,6 +364,10 @@ if [[ -n "$HERMES_BIN_PATH" ]] && [[ -x "$HERMES_BIN_PATH" ]]; then
     info "hermes 二进制位于: $HERMES_BIN_PATH"
     mkdir -p "$HERMES_HOME"
     echo "$HERMES_BIN_PATH" > "$HERMES_HOME/.hermes-bin-path" 2>/dev/null || true
+    # 仅当原本未装时记录为新装组件（升级不算新装）
+    if [[ "$HERMES_WAS_INSTALLED" == "false" ]]; then
+        add_installed_component "hermes-agent"
+    fi
     # 把 hermes 所在 bin 目录也写进 profile.d，确保非 sudo 终端能找到
     HERMES_BIN_DIR=$(dirname "$HERMES_BIN_PATH")
     if [[ "$OS_KIND" == "macos" ]]; then
@@ -395,12 +413,15 @@ install_lark() {
 
     offline_lark="$OFFLINE_DIR/lark"
     installed=$(get_installed_lark_version "$LARK_DIR/lark" || true)
+    local lark_was_installed=false
+    [[ -n "$installed" ]] && lark_was_installed=true
 
     # 离线包优先
     if [[ -f "$offline_lark" ]]; then
         info "使用离线飞书 CLI"
         cp "$offline_lark" "$LARK_DIR/lark"
         chmod +x "$LARK_DIR/lark"
+        [[ "$lark_was_installed" == "false" ]] && add_installed_component "lark"
         return 0
     fi
 
@@ -429,6 +450,7 @@ install_lark() {
                 cp -f "$bin" "$LARK_DIR/lark"
                 chmod +x "$LARK_DIR/lark"
                 info "飞书 CLI 安装成功"
+                add_installed_component "lark"
                 rm -rf "$extract_dir" "$tmp"
                 return 0
             fi
@@ -457,6 +479,7 @@ install_lark() {
                 cp -f "$bin" "$LARK_DIR/lark"
                 chmod +x "$LARK_DIR/lark"
                 info "飞书 CLI 安装成功"
+                add_installed_component "lark"
                 rm -rf "$extract_dir" "/tmp/$lark_file"
                 return 0
             fi
@@ -466,7 +489,7 @@ install_lark() {
 
     # npm 兜底
     if command -v npm &>/dev/null; then
-        npm install -g @larksuite/cli && info "飞书 CLI 通过 npm 安装成功" && return 0
+        npm install -g @larksuite/cli && info "飞书 CLI 通过 npm 安装成功" && add_installed_component "lark" && return 0
     fi
     warn "飞书 CLI 安装失败，请手动安装: npm install -g @larksuite/cli"
     return 1
@@ -638,7 +661,21 @@ _do_install_ccswitch() {
 }
 
 CC_INSTALLED=false
+# 记录 CC-Switch 安装前是否已存在（用于判断是否"新装"）
+CC_WAS_INSTALLED=false
+if [[ "$OS_KIND" == "macos" ]]; then
+    [[ -d "/Applications/CC-Switch.app" ]] && CC_WAS_INSTALLED=true
+else
+    case "$PKGMGR" in
+        apt) dpkg -l 2>/dev/null | grep -q cc-switch && CC_WAS_INSTALLED=true ;;
+        yum|dnf) rpm -q cc-switch &>/dev/null && CC_WAS_INSTALLED=true ;;
+    esac
+fi
 install_ccswitch && CC_INSTALLED=true
+# 仅当原本未装且本次安装成功时记录为新装组件
+if [[ "$CC_INSTALLED" == "true" ]] && [[ "$CC_WAS_INSTALLED" == "false" ]]; then
+    add_installed_component "cc-switch"
+fi
 
 # 创建桌面快捷方式（Linux arm64 AppImage）
 if [[ "$CC_INSTALLED" == "true" ]] && [[ "$ARCH" == "aarch64" ]] && [[ -x "/opt/cc-switch/CC-Switch.AppImage" ]]; then
@@ -881,6 +918,9 @@ install_browser_act() {
         info "跳过 browser-act 安装"
         return 0
     fi
+    # 记录 browser-act 安装前是否已存在
+    local ba_was_installed=false
+    command -v browser-act &>/dev/null && ba_was_installed=true
     if [[ "$INSTALL_BROWSER_ACT" == "false" ]]; then
         echo ""
         read -p "  是否安装 browser-act（浏览器自动化 CLI，需要 Python 3.12+ 与 uv）？[y/N，默认 N]: " ba_choice
@@ -906,6 +946,7 @@ install_browser_act() {
     info "通过 uv 安装 browser-act-cli（需要 Python 3.12+）..."
     if uv tool install browser-act-cli --python 3.12 2>/dev/null; then
         info "browser-act 安装成功（命令: browser-act）"
+        [[ "$ba_was_installed" == "false" ]] && add_installed_component "browser-act"
     else
         warn "browser-act 安装失败（可能 Python 3.12 不可用或网络问题）"
         warn "可手动执行: uv tool install browser-act-cli --python 3.12"

@@ -43,6 +43,20 @@ $LOG_DIR = Join-Path (Split-Path $PSScriptRoot -Parent) "logs"
 New-Item -ItemType Directory -Force -Path $LOG_DIR | Out-Null
 $LOG_FILE = Join-Path $LOG_DIR "install.log"
 $DEPS_RECORD = Join-Path $HERMES_HOME "installed-deps.txt"
+$COMPONENTS_RECORD = Join-Path $HERMES_HOME "installed-components.txt"
+
+# 辅助函数：记录新装的组件（仅当原本不存在时）
+function Add-InstalledComponent {
+    param([string]$ComponentName)
+    if (-not (Test-Path $COMPONENTS_RECORD)) {
+        New-Item -ItemType File -Path $COMPONENTS_RECORD -Force | Out-Null
+    }
+    $existing = Get-Content $COMPONENTS_RECORD -ErrorAction SilentlyContinue
+    if ($existing -notcontains $ComponentName) {
+        Add-Content -Path $COMPONENTS_RECORD -Value $ComponentName -Encoding UTF8
+        Write-Info "记录新装组件: $ComponentName"
+    }
+}
 
 # ============================================================
 # 日志
@@ -222,6 +236,7 @@ $pipMirrors = @(
 # ---- Hermes Agent 幂等安装 ----
 Write-Info "处理 Hermes Agent..."
 $installedHermes = Get-InstalledHermesVersion
+$hermesWasInstalled = [bool]$installedHermes
 $onlineHermes = Query-HermesLatest
 $offlineWheel = Get-ChildItem -Path "$PSScriptRoot\..\offline-packages\windows-x64" -Filter "hermes_agent-*-py3-none-any.whl" -ErrorAction SilentlyContinue | Sort-Object Name -Descending | Select-Object -First 1
 
@@ -281,17 +296,24 @@ if (Get-Command hermes -ErrorAction SilentlyContinue) {
 }
 if (-not $hermesInstalled) {
     Write-Warn "[FAIL] Hermes Agent 安装失败或无法验证"
+} else {
+    # 只记录新装的组件（原本不存在 + 安装成功）
+    if (-not $hermesWasInstalled) {
+        Add-InstalledComponent "hermes-agent"
+    }
 }
 
 # ---- 飞书 CLI 幂等安装 ----
 Write-Info "处理飞书 CLI..."
 $larkDir = "$INSTALL_DIR\lark"
 New-Item -ItemType Directory -Force -Path $larkDir | Out-Null
+$larkWasInstalled = Test-Path "$larkDir\lark.exe"
 $offlineLark = "$PSScriptRoot\..\offline-packages\windows-x64\lark.exe"
 if (Test-Path $offlineLark) {
     Write-Info "使用离线飞书 CLI"
     Copy-Item $offlineLark "$larkDir\lark.exe" -Force
-} elseif (Test-Path "$larkDir\lark.exe") {
+    if (-not $larkWasInstalled) { Add-InstalledComponent "lark" }
+} elseif ($larkWasInstalled) {
     Write-Info "飞书 CLI 已装，跳过"
 } else {
     $larkInstalled = $false
@@ -317,6 +339,10 @@ if (Test-Path $offlineLark) {
         try { npm install -g @larksuite/cli; if ($LASTEXITCODE -eq 0) { $larkInstalled = $true } } catch {}
     }
     if (-not $larkInstalled) { Write-Warn "飞书 CLI 安装失败，请手动安装: npm install -g @larksuite/cli" }
+    else {
+        # 只记录新装的组件（原本不存在 + 安装成功）
+        if (-not $larkWasInstalled) { Add-InstalledComponent "lark" }
+    }
 }
 
 # 验证飞书 CLI 安装结果
@@ -341,6 +367,7 @@ foreach ($path in @("HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*
     $app = Get-ItemProperty $path -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -like "*CC-Switch*" }
     if ($app) { $existingCc = $app; break }
 }
+$ccWasInstalled = [bool]$existingCc
 if ($existingCc) {
     Write-Info "CC-Switch 已装，跳过"
     $ccInstalled = $true
@@ -379,6 +406,8 @@ if ($existingCc) {
         if ($ccOk) {
             Write-Info "CC-Switch 安装成功"
             $ccInstalled = $true
+            # 只记录新装的组件（原本不存在 + 安装成功）
+            if (-not $ccWasInstalled) { Add-InstalledComponent "cc-switch" }
         } else {
             Write-Warn "CC-Switch 安装失败，回滚..."
             # 无条件查注册表，有残留就卸（MSI 静默安装失败也可能部分写入注册表）
@@ -548,6 +577,7 @@ Write-Host "========================================" -ForegroundColor Green
 # ---- browser-act 可选安装 ----
 if (-not $SKIP_BROWSER_ACT) {
     $doBa = $INSTALL_BROWSER_ACT
+    $browserActWasInstalled = [bool](Get-Command browser-act -ErrorAction SilentlyContinue)
     if (-not $doBa) {
         Write-Host ""
         $ba = Read-Host "  是否安装 browser-act（浏览器自动化 CLI，需要 Python 3.12+ 与 uv）？[y/N，默认 N]"
@@ -572,7 +602,9 @@ if (-not $SKIP_BROWSER_ACT) {
             Write-Warn "未检测到 uv，请手动安装 uv（powershell -c \"irm https://astral.sh/uv/install.ps1 | iex\"）后再装 browser-act"
         } else {
             Write-Info "通过 uv 安装 browser-act-cli（需要 Python 3.12+）..."
-            try { & uv tool install browser-act-cli --python 3.12; Write-Info "browser-act 安装成功" }
+            try { & uv tool install browser-act-cli --python 3.12; Write-Info "browser-act 安装成功"
+                if (-not $browserActWasInstalled) { Add-InstalledComponent "browser-act" }
+            }
             catch { Write-Warn "browser-act 安装失败（可能 Python 3.12 不可用）。可手动: uv tool install browser-act-cli --python 3.12" }
         }
     }
