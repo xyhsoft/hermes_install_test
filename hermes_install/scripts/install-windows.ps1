@@ -265,6 +265,24 @@ if ($shouldInstall) {
     }
 }
 
+# 验证 hermes 安装结果
+$hermesInstalled = $false
+$hermesVersion = ""
+if (Get-Command hermes -ErrorAction SilentlyContinue) {
+    try {
+        $v = & hermes --version 2>$null
+        $m = [regex]::Match($v, '(\d+\.\d+(?:\.\d+)?)')
+        if ($m.Success) {
+            $hermesVersion = $m.Groups[1].Value
+            $hermesInstalled = $true
+            Write-Info "[OK] Hermes Agent v$hermesVersion 安装成功"
+        }
+    } catch {}
+}
+if (-not $hermesInstalled) {
+    Write-Warn "[FAIL] Hermes Agent 安装失败或无法验证"
+}
+
 # ---- 飞书 CLI 幂等安装 ----
 Write-Info "处理飞书 CLI..."
 $larkDir = "$INSTALL_DIR\lark"
@@ -299,6 +317,17 @@ if (Test-Path $offlineLark) {
         try { npm install -g @larksuite/cli; if ($LASTEXITCODE -eq 0) { $larkInstalled = $true } } catch {}
     }
     if (-not $larkInstalled) { Write-Warn "飞书 CLI 安装失败，请手动安装: npm install -g @larksuite/cli" }
+}
+
+# 验证飞书 CLI 安装结果
+if (Test-Path "$larkDir\lark.exe") {
+    try {
+        $larkVer = & "$larkDir\lark.exe" --version 2>$null
+        if ($larkVer) { Write-Info "[OK] 飞书 CLI 安装成功" }
+        else { Write-Warn "[FAIL] 飞书 CLI 安装失败或无法验证" }
+    } catch { Write-Warn "[FAIL] 飞书 CLI 安装失败或无法验证" }
+} else {
+    Write-Warn "[FAIL] 飞书 CLI 安装失败：$larkDir\lark.exe 不存在"
 }
 
 # ---- CC-Switch 幂等安装 + 回滚 ----
@@ -470,9 +499,40 @@ if (-not $SKIP_PROVIDER_CONFIG) {
 
 # ---- 安装后验证 ----
 Write-Info "========== 安装后验证 =========="
-try { hermes --version } catch { Write-Warn "hermes 验证失败" }
-try { & "$larkDir\lark.exe" --version } catch { Write-Warn "lark 验证失败" }
-if ($ccInstalled) { Write-Info "CC-Switch: 已安装" } else { Write-Info "CC-Switch: 未安装（用 Hermes 官方配置方式）" }
+$verifyPassed = 0
+$verifyFailed = 0
+
+# hermes 验证
+$hermesCmd = Get-Command hermes -ErrorAction SilentlyContinue
+if ($hermesCmd) {
+    try { $hv = & hermes --version 2>$null; Write-Info "[PASS] hermes: $hv"; $verifyPassed++ }
+    catch { Write-Warn "[FAIL] hermes 验证失败"; $verifyFailed++ }
+} else {
+    Write-Warn "[FAIL] hermes 未找到"; $verifyFailed++
+}
+
+# lark 验证
+if (Test-Path "$larkDir\lark.exe") {
+    try { $lv = & "$larkDir\lark.exe" --version 2>$null; Write-Info "[PASS] lark: $lv"; $verifyPassed++ }
+    catch { Write-Warn "[FAIL] lark 验证失败"; $verifyFailed++ }
+} else {
+    Write-Warn "[FAIL] lark 未找到"; $verifyFailed++
+}
+
+# CC-Switch 验证
+if ($ccInstalled) {
+    Write-Info "[PASS] CC-Switch: 已安装"
+    $verifyPassed++
+} else {
+    Write-Info "[INFO] CC-Switch: 未安装（用 Hermes 官方配置方式）"
+}
+
+# 验证总结
+if ($verifyFailed -eq 0) {
+    Write-Info "✅ 安装后验证全部通过 ($verifyPassed 项)"
+} else {
+    Write-Warn "⚠️ 安装后验证部分失败（通过 $verifyPassed 项，失败 $verifyFailed 项）"
+}
 
 Write-Host ""
 Write-Host "========================================" -ForegroundColor Green
@@ -522,9 +582,19 @@ if (-not $SKIP_BROWSER_ACT) {
 if (-not $SKIP_AUTOSTART -and $ccInstalled) {
     Write-Info "尝试启动 CC-Switch..."
     $ccPath = $null
-    foreach ($p in @("C:\Program Files\CC-Switch\CC-Switch.exe","C:\Program Files (x86)\CC-Switch\CC-Switch.exe","$env:LOCALAPPDATA\CC-Switch\CC-Switch.exe")) {
-        if (Test-Path $p) { $ccPath = $p; break }
+    # 1. 从注册表读 InstallLocation（最可靠，MSI 安装会写入）
+    $ccReg = Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*","HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -like "*CC-Switch*" } | Select-Object -First 1
+    if ($ccReg -and $ccReg.InstallLocation) {
+        $candidate = Join-Path $ccReg.InstallLocation "CC-Switch.exe"
+        if (Test-Path $candidate) { $ccPath = $candidate }
     }
+    # 2. 兜底：常见路径
+    if (-not $ccPath) {
+        foreach ($p in @("C:\Program Files\CC-Switch\CC-Switch.exe","C:\Program Files (x86)\CC-Switch\CC-Switch.exe","$env:LOCALAPPDATA\CC-Switch\CC-Switch.exe","$env:LOCALAPPDATA\Programs\CC-Switch\CC-Switch.exe")) {
+            if (Test-Path $p) { $ccPath = $p; break }
+        }
+    }
+    # 3. 兜底：PATH
     if (-not $ccPath) { $ccPath = (Get-Command "CC-Switch" -ErrorAction SilentlyContinue).Source }
 
     $ccLaunchOk = $false

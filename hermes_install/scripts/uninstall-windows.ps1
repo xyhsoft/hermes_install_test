@@ -60,23 +60,33 @@ if (-not $CI_MODE) {
 
 # 卸载 Hermes Agent
 Write-ULog "卸载 Hermes Agent..."
-try { pip uninstall -y hermes-agent } catch {}
+$uninstOk = $false
+try {
+    $out = pip uninstall -y hermes-agent 2>&1
+    if ($out -match "Successfully uninstalled") { $uninstOk = $true; Write-ULog "[OK] hermes-agent 卸载成功" }
+    else { Write-ULog "[INFO] hermes-agent 可能未安装或已卸载" }
+} catch { Write-ULog "[WARN] pip uninstall 异常: $_" }
 
 # 卸载飞书 CLI
 Write-ULog "卸载飞书 CLI..."
-Remove-Item -Recurse -Force "$INSTALL_DIR\lark" -ErrorAction SilentlyContinue
+if (Test-Path "$INSTALL_DIR\lark") {
+    Remove-Item -Recurse -Force "$INSTALL_DIR\lark" -ErrorAction SilentlyContinue
+    if (Test-Path "$INSTALL_DIR\lark") { Write-ULog "[WARN] lark 目录未删干净" }
+    else { Write-ULog "[OK] lark 目录已删除" }
+} else { Write-ULog "[INFO] lark 目录不存在，跳过" }
 
 # 卸载 CC-Switch
 Write-ULog "卸载 CC-Switch..."
 $ccApp = Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*","HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -like "*CC-Switch*" }
 if ($ccApp) {
-    try { Start-Process msiexec -ArgumentList "/x $($ccApp.PSChildName) /qn" -Wait } catch {}
+    try { Start-Process msiexec -ArgumentList "/x $($ccApp.PSChildName) /qn" -Wait; Write-ULog "[OK] CC-Switch 卸载已执行" } catch { Write-ULog "[WARN] CC-Switch 卸载失败: $_" }
 } else {
-    # 尝试 Win32_Product
+    Write-ULog "[INFO] 注册表无 CC-Switch 记录，尝试 Win32_Product"
     try {
         $ccProd = (Get-WmiObject -Class Win32_Product | Where-Object { $_.Name -like "*CC-Switch*" })
-        if ($ccProd) { Start-Process msiexec -ArgumentList "/x $($ccProd.IdentifyingNumber) /qn" -Wait }
-    } catch {}
+        if ($ccProd) { Start-Process msiexec -ArgumentList "/x $($ccProd.IdentifyingNumber) /qn" -Wait; Write-ULog "[OK] CC-Switch 卸载已执行(Win32_Product)" }
+        else { Write-ULog "[INFO] 未找到 CC-Switch，可能未安装" }
+    } catch { Write-ULog "[WARN] Win32_Product 查询失败: $_" }
 }
 
 # 清理自启动快捷方式
@@ -96,49 +106,71 @@ Remove-Item -Recurse -Force $INSTALL_DIR -ErrorAction SilentlyContinue
 
 # 卸载本次新装的系统依赖（默认保留，确认才卸）
 if (Test-Path $DEPS_RECORD) {
-    Write-Host ""
-    Write-Host "本次安装新装了以下依赖（记录于 $DEPS_RECORD）："
-    Get-Content $DEPS_RECORD
-    Write-Host ""
+    Write-ULog "本次安装新装了以下依赖（记录于 $DEPS_RECORD）："
+    Get-Content $DEPS_RECORD | ForEach-Object { Write-ULog "  $_" }
     $doRemove = $false
-    if ($REMOVE_DEPS) { $doRemove = $true }
+    if ($REMOVE_DEPS) { $doRemove = $true; Write-ULog "[-REMOVE_DEPS] 自动卸载依赖" }
     else {
         $dc = Read-Host "是否一并卸载这些依赖？[y/N，默认 N 保留]"
         if ($dc -match '^[Yy]') { $doRemove = $true }
     }
     if ($doRemove) {
-        Write-Host "卸载新装依赖..."
-        # Windows 依赖记录里是 "Python 3.12.4" 这类描述性条目
-        # 按记录里的精确版本号匹配注册表，避免误卸用户已有的其它 Python
+        Write-ULog "开始卸载新装依赖..."
         Get-Content $DEPS_RECORD | ForEach-Object {
             if ($_ -like "Python*") {
                 $ver = ([regex]::Match($_, '(\d+\.\d+\.\d+)').Groups[1].Value)
-                if (-not $ver) { Write-Host "跳过无法解析版本的条目: $_"; return }
+                if (-not $ver) { Write-ULog "[SKIP] 无法解析版本: $_"; return }
                 $pyApp = Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*","HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -like "*$ver*" -and $_.DisplayName -like "Python*" }
                 if ($pyApp) {
-                    try { Start-Process msiexec -ArgumentList "/x $($pyApp.PSChildName) /qn" -Wait; Write-Host "已卸载 $_" } catch { Write-Host "卸载 $_ 失败" }
+                    try { Start-Process msiexec -ArgumentList "/x $($pyApp.PSChildName) /qn" -Wait; Write-ULog "[OK] 已卸载 $_" } catch { Write-ULog "[WARN] 卸载 $_ 失败: $_" }
                 } else {
-                    Write-Host "未找到 Python $ver 的卸载入口（可能已被卸载），跳过"
+                    Write-ULog "[SKIP] 未找到 Python $ver 卸载入口（可能已卸载）"
                 }
             } else {
-                Write-Host "跳过未知依赖条目: $_"
+                Write-ULog "[SKIP] 未知依赖条目: $_"
             }
         }
         Remove-Item $DEPS_RECORD -Force -ErrorAction SilentlyContinue
     } else {
-        Write-Host "保留系统依赖（如需卸载请加 -REMOVE_DEPS 或交互输入 y）"
+        Write-ULog "保留系统依赖（如需卸载请加 -REMOVE_DEPS 或交互输入 y）"
     }
 } else {
-    Write-Host "无新装依赖清单，跳过依赖卸载"
+    Write-ULog "[INFO] 无新装依赖清单，跳过依赖卸载"
 }
 
 # 配置文件处理
 if ($REMOVE_CONFIG) {
     Remove-Item -Recurse -Force "$env:USERPROFILE\.hermes" -ErrorAction SilentlyContinue
     Remove-Item -Recurse -Force $HERMES_HOME -ErrorAction SilentlyContinue
-    Write-ULog "已删除配置文件"
+    Write-ULog "[OK] 已删除配置文件"
 } else {
-    Write-ULog "配置文件已保留: $env:USERPROFILE\.hermes\config.yaml"
+    Write-ULog "[INFO] 配置文件已保留: $env:USERPROFILE\.hermes\config.yaml"
+}
+
+# ---- 卸载后验证 ----
+Write-ULog "========== 卸载后验证 =========="
+$uninstPassed = 0
+$uninstFailed = 0
+
+# hermes 应不可用
+$env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+$hermesCmd = Get-Command hermes -ErrorAction SilentlyContinue
+if (-not $hermesCmd) { Write-ULog "[PASS] hermes 已卸载"; $uninstPassed++ }
+    else { Write-ULog "[FAIL] hermes 仍可用"; $uninstFailed++ }
+
+# 安装目录应删除
+if (-not (Test-Path $INSTALL_DIR)) { Write-ULog "[PASS] 安装目录已删除"; $uninstPassed++ }
+    else { Write-ULog "[WARN] 安装目录仍存在: $INSTALL_DIR"; $uninstFailed++ }
+
+# CC-Switch 应卸载
+$ccCheck = Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*","HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -like "*CC-Switch*" }
+if (-not $ccCheck) { Write-ULog "[PASS] CC-Switch 已卸载"; $uninstPassed++ }
+    else { Write-ULog "[WARN] CC-Switch 注册表记录仍存在"; $uninstFailed++ }
+
+if ($uninstFailed -eq 0) {
+    Write-ULog "✅ 卸载验证全部通过 ($uninstPassed 项)"
+} else {
+    Write-ULog "⚠️ 卸载验证部分失败（通过 $uninstPassed 项，警告 $uninstFailed 项）"
 }
 
 Write-ULog "卸载完成"

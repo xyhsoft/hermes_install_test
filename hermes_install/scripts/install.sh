@@ -819,18 +819,42 @@ fi
 # 安装后验证
 # ============================================================
 info "========== 安装后验证 =========="
-command -v hermes &>/dev/null && hermes --version 2>/dev/null || warn "hermes 验证失败"
-[[ -x "$LARK_DIR/lark" ]] && "$LARK_DIR/lark" --version 2>/dev/null || warn "lark 验证失败"
+verify_passed=0
+verify_failed=0
+
+# hermes 验证
+if command -v hermes &>/dev/null; then
+    if hermes --version 2>/dev/null; then info "[PASS] hermes 验证通过"; verify_passed=$((verify_passed+1))
+    else warn "[FAIL] hermes 验证失败"; verify_failed=$((verify_failed+1)); fi
+else
+    warn "[FAIL] hermes 未找到"; verify_failed=$((verify_failed+1))
+fi
+
+# lark 验证
+if [[ -x "$LARK_DIR/lark" ]]; then
+    if "$LARK_DIR/lark" --version 2>/dev/null; then info "[PASS] lark 验证通过"; verify_passed=$((verify_passed+1))
+    else warn "[FAIL] lark 验证失败"; verify_failed=$((verify_failed+1)); fi
+else
+    warn "[FAIL] lark 未找到"; verify_failed=$((verify_failed+1))
+fi
+
+# CC-Switch 验证
 if [[ "$CC_INSTALLED" == "true" ]]; then
     if [[ "$OS_KIND" == "macos" ]]; then
-        [[ -d /Applications/CC-Switch.app ]] && info "CC-Switch: /Applications/CC-Switch.app" || warn "CC-Switch 验证失败"
+        [[ -d /Applications/CC-Switch.app ]] && { info "[PASS] CC-Switch: /Applications/CC-Switch.app"; verify_passed=$((verify_passed+1)); } || { warn "[FAIL] CC-Switch 验证失败"; verify_failed=$((verify_failed+1)); }
     elif [[ -x /opt/cc-switch/CC-Switch.AppImage ]]; then
-        info "CC-Switch: /opt/cc-switch/CC-Switch.AppImage"
+        info "[PASS] CC-Switch: /opt/cc-switch/CC-Switch.AppImage"; verify_passed=$((verify_passed+1))
     else
-        command -v cc-switch &>/dev/null && info "CC-Switch: $(which cc-switch)" || warn "CC-Switch 验证失败"
+        command -v cc-switch &>/dev/null && { info "[PASS] CC-Switch: $(which cc-switch)"; verify_passed=$((verify_passed+1)); } || { warn "[FAIL] CC-Switch 验证失败"; verify_failed=$((verify_failed+1)); }
     fi
 else
-    info "CC-Switch 未安装（已跳过/回滚），大模型配置走 Hermes 官方方式"
+    info "[INFO] CC-Switch 未安装（已跳过/回滚），大模型配置走 Hermes 官方方式"
+fi
+
+if [[ "$verify_failed" -eq 0 ]]; then
+    info "✅ 安装后验证全部通过 ($verify_passed 项)"
+else
+    warn "⚠️ 安装后验证部分失败（通过 $verify_passed 项，失败 $verify_failed 项）"
 fi
 
 echo ""

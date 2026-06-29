@@ -84,7 +84,7 @@ if [[ -d /opt/hermes-venv ]]; then
         uninstall_ok=true
     fi
 fi
-$uninstall_ok || warn "hermes-agent 卸载失败或未安装"
+$uninstall_ok && info "[OK] hermes-agent 卸载成功" || warn "[WARN] hermes-agent 卸载失败或未安装"
 
 # 清理 hermes 残留：symlink、venv、记录文件、各 python bin 里的 console script
 # 优先读 install.sh 记录的真实路径
@@ -93,7 +93,7 @@ if [[ -f "$HERMES_HOME/.hermes-bin-path" ]]; then
     recorded_bin=$(cat "$HERMES_HOME/.hermes-bin-path" 2>/dev/null || true)
     if [[ -n "$recorded_bin" ]]; then
         rm -f "$recorded_bin" 2>/dev/null || true
-        info "已删除 hermes 二进制: $recorded_bin"
+        info "[OK] 已删除 hermes 二进制: $recorded_bin"
     fi
 fi
 rm -f /usr/local/bin/hermes 2>/dev/null || true
@@ -107,23 +107,45 @@ rm -rf /opt/hermes-venv 2>/dev/null || true
 
 # 卸载飞书 CLI
 info "卸载飞书 CLI..."
-rm -rf "$INSTALL_DIR/lark" 2>/dev/null || true
+if [[ -d "$INSTALL_DIR/lark" ]]; then
+    rm -rf "$INSTALL_DIR/lark" 2>/dev/null || true
+    [[ -d "$INSTALL_DIR/lark" ]] && warn "[WARN] lark 目录未删干净" || info "[OK] lark 目录已删除"
+else
+    info "[INFO] lark 目录不存在，跳过"
+fi
 
 # 卸载 CC-Switch
 info "卸载 CC-Switch..."
 if [[ "$OS_KIND" == "macos" ]]; then
-    rm -rf /Applications/CC-Switch.app 2>/dev/null || true
+    if [[ -d /Applications/CC-Switch.app ]]; then
+        rm -rf /Applications/CC-Switch.app 2>/dev/null || true
+        info "[OK] 已删除 /Applications/CC-Switch.app"
+    else
+        info "[INFO] CC-Switch.app 不存在，跳过"
+    fi
     rm -f "$HOME/Library/LaunchAgents/com.cc-switch.app.plist" 2>/dev/null || true
 else
     case "$PKGMGR" in
         apt)
             if dpkg -l 2>/dev/null | grep -q cc-switch; then
-                dpkg -r cc-switch 2>/dev/null || apt-get remove -y cc-switch 2>/dev/null || true
+                if dpkg -r cc-switch 2>/dev/null || apt-get remove -y cc-switch 2>/dev/null; then
+                    info "[OK] cc-switch 已卸载(dpkg)"
+                else
+                    warn "[WARN] cc-switch 卸载失败(dpkg)"
+                fi
+            else
+                info "[INFO] dpkg 无 cc-switch 记录"
             fi
             ;;
         yum|dnf)
             if rpm -q cc-switch &>/dev/null; then
-                rpm -e cc-switch 2>/dev/null || yum remove -y cc-switch 2>/dev/null || true
+                if rpm -e cc-switch 2>/dev/null || yum remove -y cc-switch 2>/dev/null; then
+                    info "[OK] cc-switch 已卸载(rpm)"
+                else
+                    warn "[WARN] cc-switch 卸载失败(rpm)"
+                fi
+            else
+                info "[INFO] rpm 无 cc-switch 记录"
             fi
             ;;
     esac
@@ -203,9 +225,41 @@ CONFIG_PATH="$HOME/.hermes"
 if [[ "$REMOVE_CONFIG" == "true" ]]; then
     rm -rf "$CONFIG_PATH" 2>/dev/null || true
     rm -rf "$HERMES_HOME" 2>/dev/null || true
-    info "已删除配置文件"
+    info "[OK] 已删除配置文件"
 else
-    info "配置文件已保留: $CONFIG_PATH/config.yaml"
+    info "[INFO] 配置文件已保留: $CONFIG_PATH/config.yaml"
+fi
+
+# ---- 卸载后验证 ----
+info "========== 卸载后验证 =========="
+uninst_passed=0
+uninst_failed=0
+
+# hermes 应不可用
+if command -v hermes &>/dev/null && hermes --version &>/dev/null 2>&1; then
+    warn "[FAIL] hermes 仍可用"; uninst_failed=$((uninst_failed+1))
+else
+    info "[PASS] hermes 已卸载"; uninst_passed=$((uninst_passed+1))
+fi
+
+# 安装目录应删除
+if [[ -d "$INSTALL_DIR" ]]; then
+    warn "[WARN] 安装目录仍存在: $INSTALL_DIR"; uninst_failed=$((uninst_failed+1))
+else
+    info "[PASS] 安装目录已删除"; uninst_passed=$((uninst_passed+1))
+fi
+
+# CC-Switch 应卸载
+if command -v cc-switch &>/dev/null || [[ -x /opt/cc-switch/CC-Switch.AppImage ]] || [[ -d /Applications/CC-Switch.app ]]; then
+    warn "[WARN] CC-Switch 仍存在"; uninst_failed=$((uninst_failed+1))
+else
+    info "[PASS] CC-Switch 已卸载或未安装"; uninst_passed=$((uninst_passed+1))
+fi
+
+if [[ "$uninst_failed" -eq 0 ]]; then
+    info "✅ 卸载验证全部通过 ($uninst_passed 项)"
+else
+    warn "⚠️ 卸载验证部分失败（通过 $uninst_passed 项，警告 $uninst_failed 项）"
 fi
 
 echo "========================================"
