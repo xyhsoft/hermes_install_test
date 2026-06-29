@@ -108,6 +108,28 @@ add_installed_component() {
 HERMES_PYTHON="python3"
 
 # ============================================================
+# 预先配置国内镜像源（必须在组件安装之前，确保 pip/npm 装包走国内源）
+# ============================================================
+info "配置 pip 国内镜像源（优先级：阿里 > 清华 > 中科大）..."
+# pip 镜像在 pip_install_with_mirror 函数里按优先级使用，这里写一次全局配置
+if command -v pip3 &>/dev/null || command -v python3 &>/dev/null; then
+    mkdir -p "$HOME/.pip" 2>/dev/null || true
+    {
+        echo "[global]"
+        echo "index-url = https://mirrors.aliyun.com/pypi/simple/"
+        echo "trusted-host = mirrors.aliyun.com"
+    } > "$HOME/.pip/pip.conf" 2>/dev/null || true
+    info "[OK] pip 镜像源已配置"
+fi
+
+info "配置 npm 淘宝镜像源..."
+if command -v npm &>/dev/null; then
+    npm config set registry https://registry.npmmirror.com/ 2>/dev/null && info "[OK] npm 镜像源已配置" || warn "npm 镜像配置失败"
+else
+    info "[INFO] 未检测到 npm，跳过 npm 镜像配置（后续装飞书 CLI 若需 npm 会再用默认源）"
+fi
+
+# ============================================================
 # 依赖安装 + 首次新装清单记录
 # ============================================================
 install_system_deps() {
@@ -715,11 +737,7 @@ else
 fi
 export HERMES_HOME="$HERMES_HOME"
 
-# npm 源（条件）
-if command -v npm &>/dev/null; then
-    info "配置 npm 淘宝镜像源..."
-    npm config set registry https://registry.npmmirror.com/ 2>/dev/null || true
-fi
+# npm 镜像已在组件安装前配置（见脚本前部"预先配置国内镜像源"段）
 
 # ============================================================
 # AI 后端配置（CC-Switch 装不装都走这段 —— B 的落地）

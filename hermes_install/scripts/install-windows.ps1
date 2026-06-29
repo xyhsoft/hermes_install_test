@@ -233,6 +233,24 @@ $pipMirrors = @(
     "https://pypi.mirrors.ustc.edu.cn/simple/"
 )
 
+# ---- 预先配置国内镜像源（必须在组件安装之前，确保 pip/npm 装包走国内源）----
+Write-Info "配置 pip 国内镜像源（优先级：阿里 > 清华 > 中科大）..."
+# pip 镜像在 pip_install_with_mirror 函数里按优先级使用，这里写一次全局配置
+try {
+    $pipConf = "$env:APPDATA\pip\pip.ini"
+    New-Item -ItemType Directory -Force -Path (Split-Path $pipConf) | Out-Null
+    "[global]`nindex-url = https://mirrors.aliyun.com/pypi/simple/`ntrusted-host = mirrors.aliyun.com" | Out-File -FilePath $pipConf -Encoding UTF8
+    Write-Info "[OK] pip 镜像源已配置"
+} catch { Write-Warn "pip 全局配置写入失败（不影响安装，pip_install_with_mirror 会按镜像源逐个尝试）" }
+
+Write-Info "配置 npm 淘宝镜像源..."
+$npmCmd = Get-Command npm -ErrorAction SilentlyContinue
+if ($npmCmd) {
+    try { npm config set registry https://registry.npmmirror.com/; Write-Info "[OK] npm 镜像源已配置" } catch { Write-Warn "npm 镜像配置失败" }
+} else {
+    Write-Info "[INFO] 未检测到 npm，跳过 npm 镜像配置（后续装飞书 CLI 若需 npm 会再用默认源）"
+}
+
 # ---- Hermes Agent 幂等安装 ----
 Write-Info "处理 Hermes Agent..."
 $installedHermes = Get-InstalledHermesVersion
@@ -427,11 +445,7 @@ if ($currentPath -notlike "*$INSTALL_DIR*") {
 }
 [System.Environment]::SetEnvironmentVariable("HERMES_HOME",$HERMES_HOME,"Machine")
 
-$npmCmd = Get-Command npm -ErrorAction SilentlyContinue
-if ($npmCmd) {
-    Write-Info "配置 npm 淘宝镜像源..."
-    try { npm config set registry https://registry.npmmirror.com/ } catch {}
-}
+# npm 镜像已在组件安装前配置（见脚本前部"预先配置国内镜像源"段）
 
 # ---- AI 后端配置 ----
 if (-not $SKIP_PROVIDER_CONFIG) {
