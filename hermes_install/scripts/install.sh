@@ -754,7 +754,8 @@ if [[ "$SKIP_PROVIDER_CONFIG" == "false" ]]; then
         fi
     fi
 
-    # 写 config.yaml + .env（官方配置方法，避开 hermes config set 已知 bug）
+    # 写 config.yaml（API Key 直接写 model.api_key，Hermes credential pool 会读取）
+    # 避开 hermes config set 已知 bug，且避开 .env 环境变量名推导的不确定性
     if [[ -n "$CFG_PROVIDER" ]] && [[ -n "$CFG_BASE_URL" ]]; then
         info "写入 Hermes 配置到 $HERMES_HOME/config.yaml..."
         mkdir -p "$HERMES_HOME"
@@ -764,11 +765,22 @@ if [[ "$SKIP_PROVIDER_CONFIG" == "false" ]]; then
             echo "  base_url: $CFG_BASE_URL"
             echo "  default: $CFG_MODEL"
             [[ -n "$CFG_API_MODE" ]] && echo "  api_mode: $CFG_API_MODE"
+            [[ -n "$CFG_API_KEY" ]] && echo "  api_key: $CFG_API_KEY"
         } > "$HERMES_HOME/config.yaml"
+        chmod 600 "$HERMES_HOME/config.yaml" 2>/dev/null || true
 
+        # .env 兜底：按 base_url 主机名推导环境变量名（Hermes 查找链第 6 步）
+        # 百炼 coding.dashscope.aliyuncs.com → DASHSCOPE_API_KEY；deepseek → DEEPSEEK_API_KEY
         if [[ -n "$CFG_API_KEY" ]]; then
-            echo "MODEL_API_KEY=$CFG_API_KEY" > "$HERMES_HOME/.env"
-            info "API Key 已写入 $HERMES_HOME/.env"
+            local env_var_name=""
+            case "$CFG_BASE_URL" in
+                *dashscope.aliyuncs.com*|*aliyuncs.com*) env_var_name="DASHSCOPE_API_KEY" ;;
+                *deepseek.com*) env_var_name="DEEPSEEK_API_KEY" ;;
+                *) env_var_name="HERMES_API_KEY" ;;
+            esac
+            echo "$env_var_name=$CFG_API_KEY" > "$HERMES_HOME/.env"
+            chmod 600 "$HERMES_HOME/.env" 2>/dev/null || true
+            info "API Key 已写入 $HERMES_HOME/config.yaml (model.api_key) 和 $HERMES_HOME/.env ($env_var_name)"
         fi
 
         # 兜底同步到 ~/.hermes/

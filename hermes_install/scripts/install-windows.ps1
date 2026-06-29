@@ -421,14 +421,23 @@ if (-not $SKIP_PROVIDER_CONFIG) {
     if ($cfgProvider -and $cfgBaseUrl) {
         Write-Info "写入 Hermes 配置到 $HERMES_HOME\config.yaml..."
         New-Item -ItemType Directory -Force -Path $HERMES_HOME | Out-Null
+        # API Key 直接写 model.api_key，Hermes credential pool 会读取
+        # 避开 hermes config set 已知 bug，且避开 .env 环境变量名推导的不确定性
         $lines = @("model:","  provider: $cfgProvider","  base_url: $cfgBaseUrl","  default: $cfgModel")
         if ($cfgApiMode) { $lines += "  api_mode: $cfgApiMode" }
+        if ($cfgApiKey) { $lines += "  api_key: $cfgApiKey" }
         $content = ($lines -join "`n") + "`n"
         [System.IO.File]::WriteAllText("$HERMES_HOME\config.yaml",$content,[System.Text.UTF8Encoding]::new($false))
+
+        # .env 兜底：按 base_url 主机名推导环境变量名（Hermes 查找链第 6 步）
+        $envContent = ""
         if ($cfgApiKey) {
-            $envContent = "MODEL_API_KEY=$cfgApiKey`n"
+            $envVarName = if ($cfgBaseUrl -match "dashscope|aliyuncs") { "DASHSCOPE_API_KEY" }
+                          elseif ($cfgBaseUrl -match "deepseek") { "DEEPSEEK_API_KEY" }
+                          else { "HERMES_API_KEY" }
+            $envContent = "$envVarName=$cfgApiKey`n"
             [System.IO.File]::WriteAllText("$HERMES_HOME\.env",$envContent,[System.Text.UTF8Encoding]::new($false))
-            Write-Info "API Key 已写入 $HERMES_HOME\.env"
+            Write-Info "API Key 已写入 config.yaml (model.api_key) 和 .env ($envVarName)"
         }
         $defaultHome = Join-Path $env:USERPROFILE ".hermes"
         if ($defaultHome -ne $HERMES_HOME) {
