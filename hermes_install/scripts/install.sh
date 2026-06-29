@@ -79,7 +79,10 @@ if [[ "$OS_KIND" == "macos" ]] && [[ "$HERMES_HOME_USER_SET" == "false" ]]; then
 fi
 # 覆盖 _common.sh 的默认路径（HERMES_HOME 可能因 macOS 修正而变化）
 export INSTALL_DIR HERMES_HOME
-LOG_FILE="/var/log/hermes-install.log"
+# 日志随安装包走：安装包路径下的 logs/ 目录
+LOG_DIR="$BASE_DIR/logs"
+mkdir -p "$LOG_DIR" 2>/dev/null || true
+LOG_FILE="$LOG_DIR/install.log"
 DEPS_RECORD="${HERMES_HOME}/installed-deps.txt"
 
 info "========== Hermes Agent 幂等安装开始 =========="
@@ -843,6 +846,7 @@ else
 fi
 echo "  💡 请重开终端或执行 source /etc/profile 使环境变量生效"
 echo "  💡 长时间运行后数据目录会增大，可定期清理临时文件"
+echo "  📋 日志: $LOG_FILE"
 echo "========================================"
 
 # ============================================================

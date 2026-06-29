@@ -17,8 +17,14 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BASE_DIR="$(dirname "$SCRIPT_DIR")"
 # shellcheck source=_common.sh
 source "$SCRIPT_DIR/_common.sh"
+
+# 日志随安装包走：安装包路径下的 logs/ 目录
+LOG_DIR="$BASE_DIR/logs"
+mkdir -p "$LOG_DIR" 2>/dev/null || true
+LOG_FILE="$LOG_DIR/uninstall.log"
 
 REMOVE_CONFIG=false
 REMOVE_DEPS=false
@@ -204,4 +210,5 @@ fi
 
 echo "========================================"
 echo "  ✅ 卸载完成!"
+echo "  📋 日志: $LOG_FILE"
 echo "========================================"

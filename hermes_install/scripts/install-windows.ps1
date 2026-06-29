@@ -38,7 +38,10 @@ if ($SKIP_BAILIAN_CONFIG) { $SKIP_PROVIDER_CONFIG = $true }
 # CI 旁路：-CI 开关或 HERMES_CI=1 环境变量，跳过 RunAs 提权（GitHub Actions 等 CI 环境）
 $CI_MODE = $CI -or ($env:HERMES_CI -eq "1")
 
-$LOG_FILE = "$INSTALL_DIR\install.log"
+# 日志随安装包走：脚本所在 scripts 的父目录（安装包根）下 logs/
+$LOG_DIR = Join-Path (Split-Path $PSScriptRoot -Parent) "logs"
+New-Item -ItemType Directory -Force -Path $LOG_DIR | Out-Null
+$LOG_FILE = Join-Path $LOG_DIR "install.log"
 $DEPS_RECORD = Join-Path $HERMES_HOME "installed-deps.txt"
 
 # ============================================================
@@ -479,6 +482,7 @@ Write-Host "  Hermes Agent: $INSTALL_DIR"
 Write-Host "  数据目录: $HERMES_HOME"
 Write-Host "  CC-Switch: $(if($ccInstalled){'已安装'}else{'未安装（用 Hermes 官方配置）'})"
 Write-Host "  请重开终端使环境变量生效" -ForegroundColor Yellow
+Write-Host "  日志: $LOG_FILE" -ForegroundColor Gray
 Write-Host "========================================" -ForegroundColor Green
 
 # ---- browser-act 可选安装 ----

@@ -25,6 +25,19 @@ param(
 $DEPS_RECORD = Join-Path $HERMES_HOME "installed-deps.txt"
 $CI_MODE = $CI -or ($env:HERMES_CI -eq "1")
 
+# 日志随安装包走：脚本所在 scripts 的父目录（安装包根）下 logs/
+$LOG_DIR = Join-Path (Split-Path $PSScriptRoot -Parent) "logs"
+New-Item -ItemType Directory -Force -Path $LOG_DIR | Out-Null
+$LOG_FILE = Join-Path $LOG_DIR "uninstall.log"
+
+function Write-ULog {
+    param([string]$Message)
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    $entry = "[$timestamp] $Message"
+    Write-Host $Message
+    try { Add-Content -Path $LOG_FILE -Value $entry -Encoding UTF8 -ErrorAction Stop } catch {}
+}
+
 # 权限检查
 if (-not $CI_MODE) {
     $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
@@ -46,15 +59,15 @@ if (-not $CI_MODE) {
 }
 
 # 卸载 Hermes Agent
-Write-Host "卸载 Hermes Agent..."
+Write-ULog "卸载 Hermes Agent..."
 try { pip uninstall -y hermes-agent } catch {}
 
 # 卸载飞书 CLI
-Write-Host "卸载飞书 CLI..."
+Write-ULog "卸载飞书 CLI..."
 Remove-Item -Recurse -Force "$INSTALL_DIR\lark" -ErrorAction SilentlyContinue
 
 # 卸载 CC-Switch
-Write-Host "卸载 CC-Switch..."
+Write-ULog "卸载 CC-Switch..."
 $ccApp = Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*","HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -like "*CC-Switch*" }
 if ($ccApp) {
     try { Start-Process msiexec -ArgumentList "/x $($ccApp.PSChildName) /qn" -Wait } catch {}
@@ -71,14 +84,14 @@ $commonStartup = [Environment]::GetFolderPath("CommonStartup")
 Remove-Item -Force (Join-Path $commonStartup "CC-Switch.lnk") -ErrorAction SilentlyContinue
 
 # 清理环境变量
-Write-Host "清理环境变量..."
+Write-ULog "清理环境变量..."
 $currentPath = [System.Environment]::GetEnvironmentVariable("Path","Machine")
 $newPath = ($currentPath -split ";" | Where-Object { $_ -ne $INSTALL_DIR -and $_ -notlike "*lark*" }) -join ";"
 [System.Environment]::SetEnvironmentVariable("Path",$newPath,"Machine")
 [System.Environment]::SetEnvironmentVariable("HERMES_HOME",$null,"Machine")
 
 # 删除安装目录
-Write-Host "删除安装目录..."
+Write-ULog "删除安装目录..."
 Remove-Item -Recurse -Force $INSTALL_DIR -ErrorAction SilentlyContinue
 
 # 卸载本次新装的系统依赖（默认保留，确认才卸）
@@ -123,11 +136,13 @@ if (Test-Path $DEPS_RECORD) {
 if ($REMOVE_CONFIG) {
     Remove-Item -Recurse -Force "$env:USERPROFILE\.hermes" -ErrorAction SilentlyContinue
     Remove-Item -Recurse -Force $HERMES_HOME -ErrorAction SilentlyContinue
-    Write-Host "已删除配置文件"
+    Write-ULog "已删除配置文件"
 } else {
-    Write-Host "配置文件已保留: $env:USERPROFILE\.hermes\config.yaml"
+    Write-ULog "配置文件已保留: $env:USERPROFILE\.hermes\config.yaml"
 }
 
+Write-ULog "卸载完成"
 Write-Host "========================================" -ForegroundColor Green
 Write-Host "  卸载完成!" -ForegroundColor Green
+Write-Host "  日志: $LOG_FILE" -ForegroundColor Gray
 Write-Host "========================================" -ForegroundColor Green

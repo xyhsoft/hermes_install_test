@@ -19,7 +19,7 @@
 | macOS 11+ | Intel / Apple Silicon | `install.sh` |
 
 > `install.sh` 内部按 `uname -m` + 包管理器(apt/yum/dnf/brew)自动适配架构与发行版,一个脚本通吃 Linux + macOS。
-> CentOS 7/8 已 EOL 且官方源失效,不再支持。
+> CentOS 7/8 已 EOL 且官方源失效,不再支持;其它仍在维护的 RedHat 系(RHEL/Rocky/AlmaLinux)通常可用但未纳入 CI。
 
 ## ⚠️ 执行前准备(必读)
 
@@ -189,6 +189,21 @@ hermes_install/
 | Windows | `C:\Program Files\HermesAgent` | `%APPDATA%\Hermes` |
 | Linux | `/usr/local/hermes` | `/var/lib/hermes` |
 | macOS | `/usr/local/hermes` | `/Library/Application Support/Hermes` |
+
+## 日志文件
+
+安装和卸载过程的详细日志记录在**安装包目录下的 `logs/` 文件夹**中(随安装包走,方便排查问题):
+
+| 脚本 | 日志文件 |
+|------|---------|
+| `install.sh` | `hermes_install/logs/install.log` |
+| `install-windows.ps1` | `hermes_install\logs\install.log` |
+| `uninstall.sh` | `hermes_install/logs/uninstall.log` |
+| `uninstall-windows.ps1` | `hermes_install\logs\uninstall.log` |
+
+日志包含带时间戳的完整安装/卸载过程记录。安装/卸载完成后,脚本会输出日志文件的完整路径,便于定位。
+
+> **注意**:日志中可能包含 API Key 等敏感信息。分享日志前请检查并抹除 `sk-` 开头的 Key。
 
 ## 默认 AI 后端配置
 
