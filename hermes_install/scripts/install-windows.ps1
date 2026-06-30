@@ -239,7 +239,9 @@ Write-Info "配置 pip 国内镜像源（优先级：阿里 > 清华 > 中科大
 try {
     $pipConf = "$env:APPDATA\pip\pip.ini"
     New-Item -ItemType Directory -Force -Path (Split-Path $pipConf) | Out-Null
-    "[global]`nindex-url = https://mirrors.aliyun.com/pypi/simple/`ntrusted-host = mirrors.aliyun.com" | Out-File -FilePath $pipConf -Encoding UTF8
+    # 用无 BOM 的 UTF-8 编码写文件（Out-File -Encoding UTF8 会添加 BOM，pip 不支持）
+    $pipContent = "[global]`nindex-url = https://mirrors.aliyun.com/pypi/simple/`ntrusted-host = mirrors.aliyun.com"
+    [System.IO.File]::WriteAllText($pipConf, $pipContent, (New-Object System.Text.UTF8Encoding $false))
     Write-Info "[OK] pip 镜像源已配置"
 } catch { Write-Warn "pip 全局配置写入失败（不影响安装，pip_install_with_mirror 会按镜像源逐个尝试）" }
 
